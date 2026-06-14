@@ -146,6 +146,8 @@ class GradioASR:
             
             self.whisper_inf = self.switch_case(asr_engine)                            
             subtitles = self.whisper_inf.transcribe_file(input_path, params, highlight_words, gr.Progress())
+            if not subtitles:
+                raise RuntimeError("Transcription did not produce subtitle files.")
             self.fm.set_subtitles(subtitles, whisper_language, source_audio) 
             srt_file = self.fm.get_subtitle('.srt')
             srt_string = self._read_subtitle_file(srt_file)
@@ -160,7 +162,7 @@ class GradioASR:
                 return None, srt_string, self.fm.get_all_files()  
             
         except Exception as e:
-            logger.error(f"[gradio_asr.py] transcribe - An error occurred: {e}")
+            logger.error(f"[gradio_asr.py] transcribe - An error occurred: {e}", exc_info=True)
             gr.Warning(f'{e}')
             return None, None, None            
                 

@@ -19,9 +19,12 @@ from app.abus_path import *
 from app.abus_asr_parameters import *
 
 from src.whisperProgressHook import create_progress_listener_handle
+from src.whisper_compat import apply_triton_src_patch
 
 import structlog
 logger = structlog.get_logger()
+
+apply_triton_src_patch()
 
 
 
@@ -106,9 +109,10 @@ class WhisperInference:
                 # subtitles = self.generate_and_write_file(input_path, transcribed_segments, highlight_words)
                 result, time_for_task = self.transcribe(input_path, params.copy(), progress)
                 subtitles = self.write_file(input_path, result, highlight_words)
-                return subtitles
+                return subtitles or []
         except Exception as e:
-            logger.error(f"[abus_asr_whisper.py] transcribe_file - An error occurred: {e}")
+            logger.error(f"[abus_asr_whisper.py] transcribe_file - An error occurred: {e}", exc_info=True)
+            return []
         finally:
             self.model = None
             self.release_cuda_memory()
@@ -257,4 +261,3 @@ class WhisperInference:
 
         finally:
             return subtitles
-

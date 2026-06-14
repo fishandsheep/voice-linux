@@ -2,9 +2,6 @@ import os
 import sys
 import platform
 
-from pathlib import Path
-import random
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -50,9 +47,6 @@ from app.tab_tts_cosyvoice import tts_cosyvoice_tab
 from app.tab_tts_kokoro import tts_kokoro_tab
 from app.tab_tts_dots import tts_dots_tab
 from app.tab_translate import translate_tab
-from app.tab_live_translate import live_translate_tab
-# from app.tab_aicover import aicover_tab
-# from app.tab_demixing import demixing_tab
 
 
 ##############################################################################################
@@ -92,16 +86,8 @@ def create_ui(user_config: UserConfig):
             with gr.Tab(i18n("Whisper subtitles")):
                 subtitle_tab(user_config)
 
-            if system == "Windows":
-                with gr.Tab(i18n("Translation")):
-                    with gr.Tabs():
-                        with gr.Tab(i18n("VOD")):
-                            translate_tab(user_config)
-                        with gr.Tab(i18n("Live")):
-                            live_translate_tab(user_config)
-            else:
-                with gr.Tab(i18n("Translation")):
-                    translate_tab(user_config)
+            with gr.Tab(i18n("Translation")):
+                translate_tab(user_config)
 
             with gr.Tab(i18n("Speech Generation")):
                 tab_name = i18n('Azure-TTS') if azure_text_api_working() else i18n('Edge-TTS')
@@ -132,7 +118,7 @@ def create_ui(user_config: UserConfig):
             server_port=7870,
             inbrowser=True
         )
-    elif system == "Linux" or system == "Darwin":  # Linux or macOS
+    elif system == "Linux" or system == "Darwin":
         gradio_interface.launch()
     else:
         print(f"Unsupported systems: {system}")

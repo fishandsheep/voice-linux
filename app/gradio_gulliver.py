@@ -266,6 +266,8 @@ class GradioGulliver:
             
             self.whisper_inf = self.switch_case(asr_engine)                            
             subtitles = self.whisper_inf.transcribe_file(input_path, params, False, gr.Progress())  # highlight_words=False
+            if not subtitles:
+                raise RuntimeError("Transcription did not produce subtitle files.")
             self.fm.set_subtitles(subtitles, whisper_language, source_audio) 
             srt_file = self.fm.get_subtitle('.srt')
             srt_string = self._read_file(srt_file)
@@ -279,7 +281,7 @@ class GradioGulliver:
             else:
                 return None, source_audio, srt_string, self.fm.get_all_files()
         except Exception as e:
-            logger.error(f"[gradio_gulliver.py] gradio_upload_source - Error transcribing file: {e}")
+            logger.error(f"[gradio_gulliver.py] gradio_whisper - Error transcribing file: {e}", exc_info=True)
             gr.Warning(f'{e}')
             return None, None, None, None    
 

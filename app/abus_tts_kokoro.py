@@ -65,6 +65,15 @@ class KokoroTTS:
         EspeakWrapper.set_library(libespeak_ng_path)
         EspeakWrapper.set_data_path(espeak_ng_data_path) # or './espeak-ng-data' 
          
+    @staticmethod
+    def update_progress(progress, current: int, total: int, desc: str):
+        if progress is None or total <= 0:
+            return
+
+        try:
+            progress(current / total, desc=desc)
+        except Exception:
+            pass
 
 
     
@@ -129,9 +138,10 @@ class KokoroTTS:
         segments_folder = path_tts_segments_folder(subtitle_file)
         full_subs = pysubs2.load(tts_subtitle_file, encoding="utf-8")
         subs = full_subs
-        
+        total = len(subs)
         combined_audio = AudioSegment.empty()
-        for i in progress.tqdm(range(len(subs)), desc='Generating...'):
+        for i in range(total):
+            self.update_progress(progress, i, total, "Generating...")
             line = subs[i]
             next_line = subs[i+1] if i < len(subs)-1 else None
             
@@ -157,7 +167,7 @@ class KokoroTTS:
             elif next_line:
                 next_line.start = len(combined_audio)
                 next_line.end = next_line.start + (next_line.end - next_line.start)
-                
+        self.update_progress(progress, total, total, "Generating...")
         combined_audio.export(output_file, format=audio_format)                 
         cmd_delete_file(tts_subtitle_file)    
         
@@ -168,15 +178,16 @@ class KokoroTTS:
         use_punctuation = AbusText.has_punctuation_marks(text)
         lines = AbusText.split_into_sentences(text, use_punctuation)
         lines = lines
-        
+        total = len(lines)
         combined_audio = AudioSegment.empty() 
-        for i in progress.tqdm(range(len(lines)), desc='Generating...'):
+        for i in range(total):
+            self.update_progress(progress, i, total, "Generating...")
             tts_segment_file = os.path.join(segments_folder, f'tts_{i+1:06}.{audio_format}')    
             tts_result = self.request_tts(lines[i], tts_segment_file, kokoro_voice, speed_factor, audio_format)
             if tts_result == False:
                 continue
             combined_audio += AudioSegment.from_file(tts_segment_file)
-            
+        self.update_progress(progress, total, total, "Generating...")
         combined_audio.export(output_file, format=audio_format)
 
     
@@ -194,4 +205,3 @@ class KokoroTTS:
         else:
             self.text_to_voice(text, output_file, kokoro_voice, speed_factor, audio_format, progress)
             
-

@@ -45,7 +45,18 @@ def demucs_split_file(input_path: str, output_dir, demucs_model: str, audio_form
     ]
     logger.debug(f'[abus:demucs_split_file] command = {command}')
 
-    with subprocess.Popen(command, text=True, stderr=subprocess.PIPE, bufsize=1, universal_newlines=True) as sp:
+    demucs_env = os.environ.copy()
+    # Demucs checkpoints rely on full-object torch.load semantics.
+    demucs_env.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+
+    with subprocess.Popen(
+        command,
+        text=True,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+        universal_newlines=True,
+        env=demucs_env,
+    ) as sp:
         for line in sp.stderr:
             print(f'{line}', end='', flush=True)
             tokens = [item for item in line.split("%|") if item]

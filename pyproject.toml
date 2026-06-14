@@ -100,7 +100,7 @@ dev = [
 py-modules = ["voice_pro_launcher"]
 
 [tool.setuptools.packages.find]
-include = ["app*", "cosyvoice*", "rvc*", "src*"]
+include = ["app*", "cosyvoice*", "src*"]
 
 [tool.uv]
 package = true
