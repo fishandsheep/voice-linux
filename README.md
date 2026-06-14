@@ -2,6 +2,11 @@
 
 Voice-Pro speech recognition, translation, dubbing web UI. Current install path now `uv` only. Current supported target: Linux x86_64 + NVIDIA GPU.
 
+## Project Links
+
+- Forked from [abus-aikorea/voice-pro](https://github.com/abus-aikorea/voice-pro)
+- Chinese README: [README.zh-CN.md](README.zh-CN.md)
+
 ## Support Scope
 
 - Supported now: Linux x86_64, NVIDIA driver working, CUDA 12.8-compatible PyTorch wheels.
