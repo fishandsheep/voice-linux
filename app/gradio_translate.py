@@ -6,6 +6,7 @@ from app.abus_translate_deep import *
 from app.abus_translate_azure import *
 # from app.abus_live import *
 from app.abus_genuine import *
+from app.abus_text import AbusText
 
 import pysubs2
 
@@ -91,11 +92,7 @@ class GradioTranslate:
 
 
     def _is_subtitle_format(self, text):
-        try:
-            pysubs2.SSAFile.from_string(text)
-            return True
-        except Exception as e:
-            return False   
+        return AbusText.is_subtitle_format(text)
 
     def _read_file(self, filepath):    
         try:
@@ -117,7 +114,7 @@ class GradioTranslate:
     def _translate_subtitle(self, subtitle_file, source_lang, target_lang):
         try:
             translated_file = path_add_postfix(subtitle_file, f"_{target_lang}")
-            self.translator.translate_file(source_lang, target_lang, subtitle_file, translated_file)
+            self.translator.translate_file(source_lang, target_lang, subtitle_file, translated_file, preprocess_for_tts=True)
             return translated_file
         except Exception as e:
             logger.error(f"[gradio_translate.py] _translate_subtitle : {e}")
@@ -133,4 +130,3 @@ class GradioTranslate:
             gr.Warning(f'{e}')
             return None            
             
-

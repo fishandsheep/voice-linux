@@ -29,6 +29,7 @@ def gulliver_tab(user_config: UserConfig):
     
     f5_reference_voice = GradioCelebVoice(user_config)
     cosy_reference_voice = GradioCelebVoice(user_config)
+    dots_reference_voice = GradioCelebVoice(user_config)
     kokoro_voice = GradioKokoroVoice(user_config)    
     
     system = platform.system()
@@ -50,7 +51,10 @@ def gulliver_tab(user_config: UserConfig):
 
             with gr.Group():
                 gr.HTML(f'<center><h4>{i18n("Whisper subtitles")}</h4></center>')
-                asr_engine = user_config.get("asr_engine", 'faster-whisper')
+                supported_asr_engines = gulliver.get_asr_engines()
+                asr_engine = user_config.get("asr_engine", 'whisper-timestamped')
+                if asr_engine not in supported_asr_engines:
+                    asr_engine = 'whisper-timestamped'
                 asr_engine_radio = gr.Radio(label=i18n("Whisper Engine"), choices=gulliver.get_asr_engines(), value=asr_engine)                
 
                 whisper_model_name = user_config.get(f"{asr_engine.replace('-', '_')}_model", 'large')
@@ -151,7 +155,23 @@ def gulliver_tab(user_config: UserConfig):
                 with gr.Row():
                     kokoro_default_button = gr.ClearButton(value=i18n("Load Defaults")) 
                     kokoro_dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")                          
-                    
+            
+            with gr.Tab("dots.tts"):
+                with gr.Group():
+                    dots_language_radio = gr.Radio(choices=dots_reference_voice.gradio_languages(), label=i18n("Language"), value="English")
+                    dots_voice_dropdown = gr.Dropdown(label=i18n("Voice"), choices=dots_reference_voice.gradio_voices(), value=None)
+                    dots_reference_audio = gr.Audio(label="Reference Audio", sources=['upload', 'microphone'], type="filepath", interactive=True)
+                    dots_reference_transcript = gr.Textbox(label=i18n("Transcript"), interactive=True, max_lines=12, lines=6, placeholder=i18n("Optional"))
+                    dots_reference_image = gr.Image(label="Photo", type="filepath", interactive=False, show_download_button=False)
+                    dots_model_choice = gr.Dropdown(choices=gulliver.gradio_dots_available_models(), label="Model", value=user_config.get("dots_model", "rednote-hilab/dots.tts-mf"))
+                    dots_language_tag = gr.Dropdown(choices=gulliver.gradio_dots_language_tags(), label="Language Tag", value=user_config.get("dots_language", "Auto Detect"))
+                    dots_num_steps = gr.Slider(4, 32, value=user_config.get("dots_num_steps", 4), step=1, label="Num Steps", info="4 ~ 32")
+                    dots_guidance_scale = gr.Slider(0.5, 2.5, value=user_config.get("dots_guidance_scale", 1.2), step=0.1, label="Guidance Scale", info="0.5 ~ 2.5")
+                    dots_seed = gr.Number(value=user_config.get("dots_seed", 42), precision=0, label="Seed")
+                    dots_normalize_text = gr.Checkbox(label="Normalize Text", value=user_config.get("dots_normalize_text", False))
+                with gr.Row():
+                    dots_default_button = gr.ClearButton(value=i18n("Load Defaults"))
+                    dots_dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")
                 
     # Media Upload                        
     submit_button.click(gulliver.gradio_upload_source,
@@ -263,4 +283,31 @@ def gulliver_tab(user_config: UserConfig):
 
     kokoro_dubbing_button.click(gulliver.gradio_kokoro_dubbing, 
                 inputs=[translation_textbox, kokoro_language_dropdown, kokoro_voice_dropdown, kokoro_tts_speed, audio_format_radio], 
-                outputs=[dubbing_video, dubbing_audio, dubbing_files])                     
+                outputs=[dubbing_video, dubbing_audio, dubbing_files])
+
+    # dots.tts
+    dots_language_radio.change(dots_reference_voice.gradio_change_language, inputs=[dots_language_radio], outputs=[dots_voice_dropdown])
+    dots_voice_dropdown.change(dots_reference_voice.gradio_change_voice, inputs=[dots_voice_dropdown], outputs=[dots_reference_audio, dots_reference_transcript, dots_reference_image])
+    dots_reference_audio.clear(dots_reference_voice.gradio_clear_voice, inputs=None, outputs=[dots_reference_transcript, dots_reference_image])
+    dots_model_choice.change(gulliver.gradio_dots_recommended_steps, inputs=[dots_model_choice], outputs=[dots_num_steps])
+    dots_default_button.click(
+        gulliver.gradio_dots_default,
+        outputs=[dots_model_choice, dots_language_tag, dots_num_steps, dots_guidance_scale, dots_seed, dots_normalize_text],
+    )
+    dots_dubbing_button.click(
+        gulliver.gradio_dots_dubbing,
+        inputs=[
+            translation_textbox,
+            dots_voice_dropdown,
+            dots_reference_audio,
+            dots_reference_transcript,
+            dots_model_choice,
+            dots_language_tag,
+            dots_num_steps,
+            dots_guidance_scale,
+            dots_seed,
+            dots_normalize_text,
+            audio_format_radio,
+        ],
+        outputs=[dubbing_video, dubbing_audio, dubbing_files],
+    )

@@ -1,50 +1,26 @@
-import argparse
-import os
+from __future__ import annotations
+
+import subprocess
 import sys
-import shutil
-from pathlib import Path
-from one_click import *
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python start-abus.py <app_name>")
-        sys.exit(1)
+def main() -> int:
+    args = sys.argv[1:]
+    app_name = args[0] if args else "voice"
+    is_update = "--update" in args[1:]
 
-    OneClick.oc_check_env()
+    if app_name != "voice":
+        print(f"Unsupported app `{app_name}`.")
+        print("Use `uv run python start-voice.py` for Voice-Pro.")
+        return 1
 
-    app_name = sys.argv[1]
-    print(f"app_name: {app_name}")
-    
-    is_update = True if len(sys.argv) == 3 and sys.argv[2] == '--update' else False
-    is_installed = OneClick.oc_is_installed()
-    
-    # Debug: Print installation status
-    print(f"Installation check: is_installed={is_installed}, is_update={is_update}")
+    print("`start-abus.py` deprecated. Forwarding to `uv`.")
 
-           
-    # check start-appname.py    
-    python_filename = f'start-{app_name}.py'
-    if not os.path.exists(python_filename):
-        print(f"File not found - {python_filename}")
-        sys.exit(1)
-             
-   
-    
-    if not is_installed:
-        print("Starting installation process...")
-        OneClick.oc_install_webui(app_name, False)   
-        # oc_install_extra_packages(app_name)
-    elif is_update:
-        print("Starting update process...")
-        OneClick.oc_install_webui(app_name, True)   
-        # oc_install_extra_packages(app_name)
-    else:
-        print("Skipping installation (already installed).")
-                
+    if is_update:
+        return subprocess.run(["uv", "sync", "--upgrade"]).returncode
 
-    # ABUS - start 
-    if not is_update:
-        print("Start the program...")
-        OneClick.oc_run_cmd(f"python {python_filename}", environment=True) 
-    
+    return subprocess.run(["uv", "run", "python", "start-voice.py"]).returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

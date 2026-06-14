@@ -88,7 +88,7 @@ class AzureTranslator:
             return "Error"
 
 
-    def translate_text(self, source_lang: str, target_lang: str, text: str, progress=gr.Progress()) -> str:
+    def translate_text(self, source_lang: str, target_lang: str, text: str, progress=None) -> str:
        
         # line 끝 마침표 확인인
         use_punctuation = AbusText.has_ending_marks([text])
@@ -100,7 +100,7 @@ class AzureTranslator:
         translated_sentences = []
         
         # 각 문장을 번역
-        for sentence in progress.tqdm(sentences, desc="Translating sentences..."):
+        for sentence in self._progress_iter(progress, sentences, "Translating sentences..."):
             try:
                 translated = self.request_translate(source_lang, target_lang, sentence)
                 translated_sentences.append(translated)
@@ -114,18 +114,18 @@ class AzureTranslator:
         return final_text
     
 
-    def translate_file(self, source_lang: str, target_lang: str, subtitle_file_path: str, output_file_path: str, progress=gr.Progress()):
-        tts_source_file = path_add_postfix(subtitle_file_path, f"-{source_lang}", ".srt")
-        
-        # AbusText.process_subtitle_for_tts(subtitle_file_path, tts_source_file)
-        AbusSpacy.process_subtitle_for_tts(subtitle_file_path, tts_source_file)
+    def translate_file(self, source_lang: str, target_lang: str, subtitle_file_path: str, output_file_path: str, progress=None, preprocess_for_tts: bool = True):
+        tts_source_file = subtitle_file_path
+        if preprocess_for_tts:
+            tts_source_file = path_add_postfix(subtitle_file_path, f"-{source_lang}", ".srt")
+            AbusSpacy.process_subtitle_for_tts(subtitle_file_path, tts_source_file)
         
         # Load subtitles using pysubs2
         full_subs = pysubs2.load(tts_source_file)
         subs = full_subs
         
         # 구두점이 없는 언어의 경우 각 자막을 개별적으로 번역
-        for event in progress.tqdm(subs, desc='Translate...'):
+        for event in self._progress_iter(progress, subs, "Translate..."):
             if not event.text:
                 continue
                 
@@ -144,7 +144,8 @@ class AzureTranslator:
 
         # Save the translated subtitles
         subs.save(output_file_path)     
-        cmd_delete_file(tts_source_file)  
+        if preprocess_for_tts and tts_source_file != subtitle_file_path:
+            cmd_delete_file(tts_source_file)  
 
        
     
@@ -202,3 +203,8 @@ class AzureTranslator:
             return "Error"
             
         
+    @staticmethod
+    def _progress_iter(progress, iterable, desc: str):
+        if progress is None:
+            return iterable
+        return progress.tqdm(iterable, desc=desc)

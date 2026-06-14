@@ -204,16 +204,24 @@ class WhisperXInference:
 
 
         original_stdout = sys.stdout
-        sys.stdout = ProgressCapture(progress, "Alignment...")    
+        sys.stdout = ProgressCapture(progress, "Alignment...")
         try:
             model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=self.device)
-            result = whisperx.align(result["segments"], model_a, metadata, audio, self.device,
-                                    interpolate_method="nearest",   # "nearest", "linear", "ignore"
-                                    return_char_alignments=True,
-                                    print_progress=True
-                                    )
+            result = whisperx.align(
+                result["segments"],
+                model_a,
+                metadata,
+                audio,
+                self.device,
+                interpolate_method="nearest",   # "nearest", "linear", "ignore"
+                return_char_alignments=True,
+                print_progress=True,
+            )
             result["language"] = params.lang
-            del model_a        
+            del model_a
+        except Exception as e:
+            logger.warning(f"[abus_asr_whisperx.py] alignment skipped: {e}")
+            result["language"] = params.lang
         finally:
             sys.stdout = original_stdout
             
@@ -229,6 +237,13 @@ class WhisperXInference:
  
         if progress is not None: 
             progress(0, desc="Initializing Model..")
+        logger.info(
+            "[abus_asr_whisperx.py] update_model start: model=%s device=%s compute_type=%s download_root=%s",
+            params.model_size,
+            self.device,
+            params.compute_type,
+            os.path.join("model", "faster-whisper"),
+        )
             
         self.current_model_size = params.model_size
         self.current_compute_type = params.compute_type
@@ -248,13 +263,27 @@ class WhisperXInference:
         }        
         
         
+        download_root = os.path.join("model", "faster-whisper")
+        os.makedirs(download_root, exist_ok=True)
+
+        if progress is not None:
+            progress(0.05, desc="Loading or downloading ASR model...")
+
         self.model = whisperx.load_model(
             whisper_arch=params.model_size,
             device=self.device,
             compute_type=params.compute_type,
-            download_root=os.path.join("model", "faster-whisper"),
-            asr_options=asr_options
+            download_root=download_root,
+            asr_options=asr_options,
         )
+
+        logger.info(
+            "[abus_asr_whisperx.py] update_model done: model=%s compute_type=%s",
+            params.model_size,
+            params.compute_type,
+        )
+        if progress is not None:
+            progress(1.0, desc="Model ready")
         
 
 

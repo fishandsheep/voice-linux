@@ -18,7 +18,7 @@ import gradio as gr
 from src.config import UserConfig
 
 import src.ui as ui
-from src.i18n.i18n import I18nAuto
+from src.i18n.i18n import I18nAuto, SUPPORTED_UI_LANGUAGES, normalize_language, set_active_language
 i18n = I18nAuto()
 
 import structlog
@@ -48,6 +48,7 @@ from app.tab_tts_f5_single import tts_f5_single_tab
 from app.tab_tts_f5_multi import tts_f5_multi_tab
 from app.tab_tts_cosyvoice import tts_cosyvoice_tab
 from app.tab_tts_kokoro import tts_kokoro_tab
+from app.tab_tts_dots import tts_dots_tab
 from app.tab_translate import translate_tab
 from app.tab_live_translate import live_translate_tab
 # from app.tab_aicover import aicover_tab
@@ -65,48 +66,59 @@ def create_ui(user_config: UserConfig):
     js = ui.js
     
     system = platform.system()    
+    initial_language = normalize_language(user_config.get("gradio_language", "English"))
+    set_active_language(initial_language)
 
     with gr.Blocks(title='Voice-Pro', css=css, theme=ui.theme) as gradio_interface:
-        gr.HTML(f'<center><h6>{i18n("")}</h6></center>')
-        
-        with gr.Tab(i18n("Dubbing Studio")):
-            gulliver_tab(user_config)
-                        
-        with gr.Tab(i18n("Whisper subtitles")):
-            subtitle_tab(user_config)            
-        
-        if system == "Windows":    
-            with gr.Tab(i18n("Translation")):
-                with gr.Tabs():
-                    with gr.Tab(i18n("VOD")):
-                        translate_tab(user_config)
-                    with gr.Tab(i18n("Live")):
-                        live_translate_tab(user_config)
-        else:
-            with gr.Tab(i18n("Translation")):
-                translate_tab(user_config)
+        language_dropdown = gr.Dropdown(
+            label="UI Language",
+            choices=list(SUPPORTED_UI_LANGUAGES.keys()),
+            value=initial_language,
+            interactive=True,
+        )
 
-        with gr.Tab(i18n("Speech Generation")):
-            tab_name = i18n('Azure-TTS') if azure_text_api_working() else i18n('Edge-TTS')
-            with gr.Tab(tab_name):
-                tts_edge_tab(user_config)   
-            with gr.Tab(i18n("F5-TTS (Single)")):
-                tts_f5_single_tab(user_config)
-            with gr.Tab(i18n("F5-TTS (Multi)")):
-                tts_f5_multi_tab(user_config)
-            with gr.Tab(i18n("CosyVoice")):
-                tts_cosyvoice_tab(user_config) 
-            with gr.Tab(i18n("kokoro")):
-                tts_kokoro_tab(user_config)                                                    
+        @gr.render(inputs=[language_dropdown])
+        def render_app(selected_language):
+            selected_language = normalize_language(selected_language)
+            set_active_language(selected_language)
+            if user_config.get("gradio_language") != selected_language:
+                user_config.set("gradio_language", selected_language)
 
-        # with gr.Tab(i18n("AI Cover")):
-        #     with gr.Tabs():                      
-        #         with gr.Tab(i18n("Cover Studio")):
-        #             aicover_tab(user_config)                                    
-        #         with gr.Tab(i18n("Demixing")):
-        #             demixing_tab(user_config)            
-            
-        create_app_footer()    
+            gr.HTML(f'<center><h6>{i18n("")}</h6></center>')
+
+            with gr.Tab(i18n("Dubbing Studio")):
+                gulliver_tab(user_config)
+
+            with gr.Tab(i18n("Whisper subtitles")):
+                subtitle_tab(user_config)
+
+            if system == "Windows":
+                with gr.Tab(i18n("Translation")):
+                    with gr.Tabs():
+                        with gr.Tab(i18n("VOD")):
+                            translate_tab(user_config)
+                        with gr.Tab(i18n("Live")):
+                            live_translate_tab(user_config)
+            else:
+                with gr.Tab(i18n("Translation")):
+                    translate_tab(user_config)
+
+            with gr.Tab(i18n("Speech Generation")):
+                tab_name = i18n('Azure-TTS') if azure_text_api_working() else i18n('Edge-TTS')
+                with gr.Tab(tab_name):
+                    tts_edge_tab(user_config)
+                with gr.Tab(i18n("F5-TTS (Single)")):
+                    tts_f5_single_tab(user_config)
+                with gr.Tab(i18n("F5-TTS (Multi)")):
+                    tts_f5_multi_tab(user_config)
+                with gr.Tab(i18n("CosyVoice")):
+                    tts_cosyvoice_tab(user_config)
+                with gr.Tab(i18n("kokoro")):
+                    tts_kokoro_tab(user_config)
+                with gr.Tab("dots.tts"):
+                    tts_dots_tab(user_config)
+
+            create_app_footer()
         
         
         gradio_interface.load(None, None, None, js="() => document.getElementsByTagName('body')[0].classList.add('dark')")

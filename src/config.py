@@ -16,8 +16,8 @@ class UserConfig:
     def __init__(self, user_config_path):
         self.user_config_path = user_config_path
         self.default_user_config = {
-            "asr_engine": "faster-whisper",
-            "gradio_language": "Korean",
+            "asr_engine": "whisper-timestamped",
+            "gradio_language": "English",
             "whisper_model": "large",
             "faster_whisper_model": "large",
             "whisper_timestamped_model": "large",
@@ -64,6 +64,12 @@ class UserConfig:
             "edge_tts_pitch": 0,
             "edge_tts_rate": 0,
             "edge_tts_volume": 0,            
+            "dots_model": "rednote-hilab/dots.tts-mf",
+            "dots_language": "Auto Detect",
+            "dots_num_steps": 4,
+            "dots_guidance_scale": 1.2,
+            "dots_seed": 42,
+            "dots_normalize_text": False,
             "f5_single_language": "English",
             "f5_multi_language1": "English",
             "f5_multi_language2": "English",            
@@ -111,5 +117,3 @@ class UserConfig:
     def set(self, key, value):
         self.user_config[key] = value
         self.save_user_config()
-
-

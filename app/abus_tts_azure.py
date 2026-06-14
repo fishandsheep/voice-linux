@@ -22,6 +22,12 @@ class AzureTTS:
         speech_key = get_azure_speech_key()
         service_region = get_azure_speech_region()
         self.speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
+
+    @staticmethod
+    def _progress_iter(progress, iterable, desc: str):
+        if progress is None:
+            return iterable
+        return progress.tqdm(iterable, desc=desc)
         
 
     def speech_synthesis_get_available_voices(self):
@@ -121,7 +127,7 @@ class AzureTTS:
         return True
     
     
-    def srt_to_voice(self, subtitle_file: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=gr.Progress()):
+    def srt_to_voice(self, subtitle_file: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=None):
         tts_subtitle_file = path_add_postfix(subtitle_file, f"-{voice_name}", ".srt")
         
         # AbusText.process_subtitle_for_tts(subtitle_file, tts_subtitle_file)
@@ -133,7 +139,7 @@ class AzureTTS:
         subs = full_subs
         
         combined_audio = AudioSegment.empty()
-        for i in progress.tqdm(range(len(subs)), desc='Generating...'):
+        for i in self._progress_iter(progress, range(len(subs)), "Generating..."):
             line = subs[i]
             next_line = subs[i+1] if i < len(subs)-1 else None
             
@@ -164,7 +170,7 @@ class AzureTTS:
         cmd_delete_file(tts_subtitle_file)                        
           
 
-    def text_to_voice(self, text: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=gr.Progress()):
+    def text_to_voice(self, text: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=None):
         segments_folder = path_tts_segments_folder(output_file)  
         
         use_punctuation = AbusText.has_punctuation_marks(text)
@@ -172,7 +178,7 @@ class AzureTTS:
         lines = lines
         
         combined_audio = AudioSegment.empty() 
-        for i in progress.tqdm(range(len(lines)), desc='Generating...'):
+        for i in self._progress_iter(progress, range(len(lines)), "Generating..."):
             tts_segment_file = os.path.join(segments_folder, f'tts_{i+1:06}.{audio_format}')    
             tts_result = self.request_tts(lines[i], tts_segment_file, voice_name, semitones, speed_factor, volume_factor, audio_format)
             if tts_result == False:
@@ -182,7 +188,7 @@ class AzureTTS:
         combined_audio.export(output_file, format=audio_format)
 
 
-    def infer(self, text: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=gr.Progress()):
+    def infer(self, text: str, output_file: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format, progress=None):
         logger.debug(f'[abus_tts_azure.py] infer - text = {text}')
         
         subtitle_file = None

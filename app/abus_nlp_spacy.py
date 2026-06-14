@@ -1,4 +1,5 @@
 import re
+import importlib.util
 import pysubs2
 import spacy
 from spacy.cli.download import download
@@ -13,6 +14,7 @@ class AbusSpacy:
     
     _nlp_models = {}
     detector = LanguageDetectorBuilder.from_all_languages().build()
+    FALLBACK_BLANK_LANGUAGES = {"en", "zh", "ja", "ko", "fr", "de", "es", "it", "ru"}
     
     SUPPORTED_LANGUAGES = {
         'en': {
@@ -74,8 +76,15 @@ class AbusSpacy:
             try:
                 cls._nlp_models[key] = spacy.load(model_name, disable=["tagger", "ner"])
             except OSError:
-                download(model_name)
-                cls._nlp_models[key] = spacy.load(model_name, disable=["tagger", "ner"])
+                try:
+                    if importlib.util.find_spec("pip") is not None:
+                        download(model_name)
+                        cls._nlp_models[key] = spacy.load(model_name, disable=["tagger", "ner"])
+                    else:
+                        raise RuntimeError("pip unavailable for spaCy model download")
+                except Exception:
+                    blank_lang = lang if lang in cls.FALLBACK_BLANK_LANGUAGES else "en"
+                    cls._nlp_models[key] = spacy.blank(blank_lang)
             cls._nlp_models[key].add_pipe('sentencizer', first=True)
         return cls._nlp_models[key]
 
@@ -211,6 +220,8 @@ class AbusSpacy:
             return True
         except Exception as e:
             print(f"Error: {e}")
+            subs = pysubs2.load(subtitle_file, encoding="utf-8")
+            subs.save(output_file)
             return False
 
 if __name__ == "__main__":

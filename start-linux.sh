@@ -4,13 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ENV_PYTHON="$SCRIPT_DIR/installer_files/env/bin/python"
 LOG_FILE="${VOICE_PRO_LOG:-/tmp/voice-pro.log}"
 PID_FILE="${VOICE_PRO_PID:-/tmp/voice-pro.pid}"
 
-if [ ! -x "$ENV_PYTHON" ]; then
-    echo "Missing environment: $ENV_PYTHON"
-    echo "Run ./start.sh once to create installer_files/env."
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv not found."
+    echo "Install uv, then run: uv sync"
     exit 1
 fi
 
@@ -23,38 +22,7 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 fi
 
-NVIDIA_LIB_PATH="$("$ENV_PYTHON" - <<'PY'
-import os
-
-paths = []
-
-try:
-    import nvidia.cublas.lib
-
-    paths.append(os.path.dirname(nvidia.cublas.lib.__file__))
-except ImportError:
-    pass
-
-try:
-    import nvidia.cudnn.lib
-
-    paths.append(os.path.dirname(nvidia.cudnn.lib.__file__))
-except ImportError:
-    pass
-
-print(":".join(paths))
-PY
-)"
-
-if [ -n "$NVIDIA_LIB_PATH" ]; then
-    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
-        export LD_LIBRARY_PATH="$NVIDIA_LIB_PATH:$LD_LIBRARY_PATH"
-    else
-        export LD_LIBRARY_PATH="$NVIDIA_LIB_PATH"
-    fi
-fi
-
-setsid "$ENV_PYTHON" start-voice.py >"$LOG_FILE" 2>&1 < /dev/null &
+setsid uv run python start-voice.py >"$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
 echo "$PID" > "$PID_FILE"
 
