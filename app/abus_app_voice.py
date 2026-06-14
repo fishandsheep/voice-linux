@@ -6,9 +6,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-matcha_dir = os.path.join(parent_dir, 'third_party', 'Matcha-TTS')
-sys.path.append(matcha_dir)
-
 
 import torch
 import gradio as gr
@@ -63,7 +60,7 @@ def create_ui(user_config: UserConfig):
     initial_language = normalize_language(user_config.get("gradio_language", "English"))
     set_active_language(initial_language)
 
-    with gr.Blocks(title='Voice-Pro', css=css, theme=ui.theme) as gradio_interface:
+    with gr.Blocks(title='voice-simple', css=css, theme=ui.theme) as gradio_interface:
         language_dropdown = gr.Dropdown(
             label="UI Language",
             choices=list(SUPPORTED_UI_LANGUAGES.keys()),
@@ -130,7 +127,7 @@ def create_app_footer():
     python_version = platform.python_version()
     torch_version = torch.__version__
 
-    footer_items = ["🔊 [voice-pro](https://github.com/abus-aikorea/voice-pro)"]
+    footer_items = ["🔊 [voice-simple](https://github.com/fishandsheep/voice-linux)"]
     footer_items.append(f"python: `{python_version}`")
     footer_items.append(f"torch: `{torch_version}`")
     footer_items.append(f"gradio: `{gradio_version}`")

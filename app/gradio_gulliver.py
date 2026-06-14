@@ -59,6 +59,10 @@ class GradioGulliver:
             return "whisper-timestamped"
         return case
 
+    @staticmethod
+    def get_dubbing_asr_note() -> str:
+        return "Dubbing Studio only supports whisper-timestamped and whisper."
+
     @property
     def translator(self):
         if self._translator is None:

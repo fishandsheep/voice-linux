@@ -55,12 +55,22 @@ def gulliver_tab(user_config: UserConfig):
                 asr_engine = user_config.get("asr_engine", 'whisper-timestamped')
                 if asr_engine not in supported_asr_engines:
                     asr_engine = 'whisper-timestamped'
-                asr_engine_radio = gr.Radio(label=i18n("Whisper Engine"), choices=gulliver.get_asr_engines(), value=asr_engine)                
+                asr_engine_radio = gr.Radio(
+                    label=i18n("Whisper Engine"),
+                    choices=gulliver.get_asr_engines(),
+                    value=asr_engine,
+                    info=gulliver.get_dubbing_asr_note(),
+                )
 
                 whisper_model_name = user_config.get(f"{asr_engine.replace('-', '_')}_model", 'large')
                 whisper_model_dropdown = gr.Dropdown(label=i18n("Whisper Model"), choices=gulliver.get_whisper_models(), value=whisper_model_name, info=i18n(""))
                 whisper_language_dropdown = gr.Dropdown(label=i18n("Media Language"), choices=gulliver.get_whisper_languages(), value=user_config.get("whisper_language", 'english'), info=i18n(""))
-                compute_type_dropdown = gr.Dropdown(label=i18n("Compute Type"), choices=gulliver.get_whisper_compute_types(), value=user_config.get("whisper_compute_type", 'default'), info=i18n("Only for faster-whisper"))
+                compute_type_dropdown = gr.Dropdown(
+                    label=i18n("Compute Type"),
+                    choices=gulliver.get_whisper_compute_types(),
+                    value=user_config.get("whisper_compute_type", 'default'),
+                    visible=False,
+                )
                 denoise_level = gr.Slider(minimum=0, maximum=2, step=1, value=user_config.get("denoise_level", 0), label=i18n("Denoise Level"))
             with gr.Row():
                 whisper_default_button = gr.ClearButton(value=i18n("Load Defaults"))

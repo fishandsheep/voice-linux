@@ -194,3 +194,7 @@ model/f5-tts/voice_15s.zip
 /model/kokoro
 /model/edge-tts
 /model/cosyvoice
+/model/dots-tts
+/model/vad
+/model/rvc-voice
+.venv-dots-tts/

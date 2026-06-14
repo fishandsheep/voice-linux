@@ -1,4 +1,4 @@
-from voice_pro_launcher import main
+from voice_simple_launcher import main
 
 
 if __name__ == "__main__":

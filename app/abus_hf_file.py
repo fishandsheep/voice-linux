@@ -54,7 +54,7 @@ class HF_File():
             
                 _, extension = os.path.splitext(download_file_path)
                 if extension.lower() == '.zip':
-                    self.unzip(make_folder=(self.file_type=='rvc-voice'))
+                    self.unzip()
             else:
                 logger.debug(f'[abus_hf_file.py] download - skip : {download_file_path}') 
                   
@@ -104,7 +104,7 @@ class HF_File():
             
             _, extension = os.path.splitext(download_file_path)
             if extension.lower() == '.zip':
-                self.unzip(make_folder=(self.file_type=='rvc-voice'))
+                self.unzip()
             return True, download_file_path
         except:
             return False, None          

@@ -1,13 +1,24 @@
-# Voice-Pro
+# voice-simple
 
-`voice-pro` 是 [abus-aikorea/voice-pro](https://github.com/abus-aikorea/voice-pro) 分支仓库，当前只保留真实可用主线：`Linux x86_64 + NVIDIA + uv`。仓库现在只覆盖 4 类核心页面与流程：
+`voice-simple` 是 [abus-aikorea/voice-pro](https://github.com/abus-aikorea/voice-pro) 精简分支，当前只保留真实可用主线：`Linux x86_64 + NVIDIA + uv`。
+
+当前仓库只覆盖 4 个页面：
 
 - `Dubbing Studio`
 - `Whisper subtitles`
 - `Translation`
 - `Speech Generation`
 
-不再把 Windows、macOS、conda、one-click、旧站点页面、AI Cover、Karaoke、RVC、VSR、Live Translation、Demixing、Batch TTS 当作当前支持范围。
+不再支持或维护：
+
+- Windows / macOS 主流程
+- conda / `installer_files` / one-click
+- AI Cover / Karaoke / RVC / VSR / Live Translation / Batch TTS
+- 旧静态站点、旧多语言 README、旧脚本入口
+
+## 界面截图
+
+![voice-simple 界面截图](assets/voice-simple-ui.png)
 
 ## 支持范围
 
@@ -20,14 +31,14 @@
 
 不支持：
 
-- Windows 主流程
-- macOS
 - CPU-only
-- conda / `installer_files` / `one_click.py`
+- Windows / macOS 主路径
+- `conda`
+- 旧 `start.bat` / `configure.bat` / one-click 安装流
 
 ## 环境要求
 
-系统需要先装好：
+系统先装好：
 
 - `uv`
 - `git`
@@ -35,7 +46,7 @@
 - `espeak-ng`
 - 可工作的 NVIDIA 驱动
 
-Debian / Ubuntu 可直接执行：
+Debian / Ubuntu：
 
 ```bash
 sudo apt update
@@ -60,26 +71,25 @@ espeak-ng --version
 uv sync
 ```
 
-`uv sync` 会做这些事：
+`uv sync` 会：
 
-- 解析 `.python-version`，安装 `Python 3.10.15`
+- 解析 `.python-version` 并安装 `Python 3.10.15`
 - 创建项目虚拟环境
 - 安装 CUDA 12.8 对应 PyTorch 轮子
-- 安装 `whisperx`、`kokoro`、`f5-tts`、`dots-tts`、`onnxruntime-gpu` 等运行依赖
-- 保持 `dots.tts` 在主环境内运行，不再依赖独立环境
+- 安装 `whisperx`、`kokoro`、`f5-tts`、`dots-tts`、`onnxruntime-gpu` 等依赖
 
 ## 启动
 
 推荐命令：
 
 ```bash
-uv run voice-pro
+uv run voice-simple
 ```
 
 等价命令：
 
 ```bash
-uv run python start-voice.py
+uv run python start-voice-simple.py
 ```
 
 后台启动辅助脚本：
@@ -88,7 +98,7 @@ uv run python start-voice.py
 ./start-linux.sh
 ```
 
-默认会拉起本地 Gradio 服务，常见地址：
+默认本地地址：
 
 ```text
 http://127.0.0.1:7860
@@ -102,40 +112,40 @@ http://127.0.0.1:7860
 uv run python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
 ```
 
-再验证核心依赖导入：
+再验证核心依赖：
 
 ```bash
 uv run python -c "import gradio, onnxruntime, whisperx, kokoro, f5_tts, dots_tts.runtime"
 ```
 
-如果要验证启动链本身，可执行：
+再验证主入口：
 
 ```bash
-uv run voice-pro
+uv run voice-simple
 ```
 
 ## 首次运行与模型下载
 
-首次启动会自动准备部分运行模型与素材，速度可能较慢。当前启动链会预取：
+首次启动会自动准备部分模型与素材，速度可能较慢。当前启动链会预取：
 
-- `demucs` 去噪模型
+- `demucs`
 - `Edge-TTS` 示例音色素材
 - `kokoro` 示例音色与 `eSpeak NG` 资源
 - `CosyVoice` 示例音色与模型包
 
 另外：
 
-- `F5-TTS` / `E2-TTS` 首次推理会按所选模型拉取权重
+- `F5-TTS` / `E2-TTS` 首次推理会下载所选模型权重
 - `dots.tts` 首次推理会从 Hugging Face 下载所选权重
-- `whisper` / `faster-whisper` / `whisper-timestamped` / `whisperX` 首次使用对应模型时也会下载
+- `whisper` / `faster-whisper` / `whisper-timestamped` / `whisperX` 首次使用时会下载对应模型
 
-工作目录约定：
+目录约定：
 
 - 工作区：`./workspace`
 - Gradio 临时目录：`./workspace/gradio`
 - 模型目录：`./model`
 
-## 功能使用
+## 页面与流程
 
 ### 1. 语音识别
 
@@ -148,20 +158,21 @@ uv run voice-pro
 
 1. 上传音频或视频，或填写 YouTube URL。
 2. 选择 ASR 引擎。
-3. 选择模型、语言、`Compute Type`、去噪等级。
+3. 选择模型、语言、去噪等级。
 4. 执行转写，生成字幕文本与字幕文件。
 
-说明：
+关键区别：
 
 - `Whisper subtitles` 页面支持 `faster-whisper`、`whisper`、`whisper-timestamped`、`whisperX`
-- `Dubbing Studio` 当前默认且推荐 `whisper-timestamped`
-- `Dubbing Studio` 页面会把 `faster-whisper` / `whisperX` 归一到 `whisper-timestamped`
-- `Compute Type` 仅对 `faster-whisper` 生效
-- `Denoise Level` 会调用 `demucs` 做人声分离后再转写，因此首次运行可能更慢
+- `Dubbing Studio` 页面只支持 `whisper-timestamped`、`whisper`
+- `Dubbing Studio` 默认与推荐使用 `whisper-timestamped`
+- 之前 README 把两个页面写混了；当前代码真实行为以上面为准
+- `Compute Type` 仅对 `Whisper subtitles` 页面里的 `faster-whisper` 生效
+- `Denoise Level` 会先调用 `demucs` 做分离再转写，首次运行会更慢
 
 输出：
 
-- `.srt` 等字幕文件
+- `.srt`、`.vtt`、`.tsv`、`.txt`、`.json`
 - 工作区中的中间音频 / 视频文件
 
 ### 2. 翻译
@@ -182,8 +193,8 @@ uv run voice-pro
 
 - 普通文本会按句切分再翻译
 - 字幕会逐条翻译，并按 TTS 需要做轻量预处理
-- 若配置可用，会优先使用 `Azure Translator`
-- 未配置 Azure 时，默认走 `deep-translator`
+- 配置可用时优先使用 `Azure Translator`
+- 未配置 Azure 时默认走 `deep-translator`
 
 ### 3. 配音
 
@@ -194,7 +205,7 @@ uv run voice-pro
 
 基本流程：
 
-1. 输入翻译后的文本，或导入字幕文件。
+1. 输入翻译后文本，或导入字幕文件。
 2. 选择 TTS 引擎与模型。
 3. 根据引擎填写参考音频、参考文本、语言、步数、语速等参数。
 4. 执行合成，生成音频文件。
@@ -216,7 +227,7 @@ uv run voice-pro
 5. 选择 TTS 引擎与参数
 6. 合成配音音频或视频
 
-这个页面适合单文件端到端流程；如果只做某一段功能，分别去 `Whisper subtitles`、`Translation`、`Speech Generation` 更直接。
+这个页面适合单文件端到端处理。如果只做局部能力，分别去 `Whisper subtitles`、`Translation`、`Speech Generation` 更直接。
 
 ## 支持引擎与模型
 
@@ -227,7 +238,8 @@ uv run voice-pro
   - 参考音频：不需要
   - 特点：支持 `Compute Type`
 - `openai-whisper`
-  - 页面：`Whisper subtitles`
+  - 页面：`Whisper subtitles`、`Dubbing Studio`
+  - 界面显示名：`whisper`
   - 参考音频：不需要
 - `whisper-timestamped`
   - 页面：`Whisper subtitles`、`Dubbing Studio`
@@ -258,108 +270,85 @@ uv run voice-pro
   - 页面：`Speech Generation`、`Dubbing Studio`
   - 参考音频：不需要
   - 配置：需要 `.env`
-  - 必填变量：`AZURE_SPEECH_KEY`、`AZURE_SPEECH_REGION`
 - `F5-TTS`
   - 页面：`Speech Generation`、`Dubbing Studio`
-  - 参考音频：需要
-  - 参考文本：建议提供
-  - 特点：适合克隆式配音，首次加载较慢
-  - 当前模型族：`SWivid/F5-TTS_v1` 及 `abus_tts_f5_models.json` 中列出的 F5 模型
+  - 参考音频：可选
+  - 特点：高质量，长文本较慢
 - `E2-TTS`
   - 页面：`Speech Generation`、`Dubbing Studio`
-  - 从属：作为 `F5-TTS` 体系中的可选模型 `SWivid/E2-TTS`
-  - 参考音频：需要
-  - 特点：首次拉权重较慢
+  - 从属关系：作为 `F5-TTS` 体系可选模型使用
+  - 参考音频：可选
 - `CosyVoice`
   - 页面：`Speech Generation`、`Dubbing Studio`
   - 参考音频：需要
-  - 参考文本：`Zero-Shot` 模式建议提供，界面中也标注为必填
-  - 特点：模型体积大，初始化明显较慢
+  - 特点：支持 `Zero-Shot`、`Cross-Lingual`、`Instruct`
 - `kokoro`
   - 页面：`Speech Generation`、`Dubbing Studio`
   - 参考音频：不需要
-  - 限制：依赖 `espeak-ng`
+  - 特点：轻量，启动快
 - `dots.tts`
   - 页面：`Speech Generation`、`Dubbing Studio`
-  - 参考音频：可选
-  - 参考文本：可选
-  - 当前模型：`rednote-hilab/dots.tts-mf`、`rednote-hilab/dots.tts-soar`、`rednote-hilab/dots.tts-base`
-  - 特点：首次下载权重较慢；长字幕逐句合成时耗时明显
+  - 参考音频：需要
+  - 特点：首次下载权重较慢，长字幕逐句合成较慢
 
 ## Azure 配置
 
-如需启用 Azure 翻译或 Azure TTS，先复制配置模板：
+如需启用 `Azure Translator` / `Azure TTS`，在项目根目录放 `.env`，至少包含：
 
-```bash
-cp .env.example .env
-```
-
-然后填写：
-
-```dotenv
-AZURE_SPEECH_KEY=...
-AZURE_SPEECH_REGION=eastus
+```env
 AZURE_TRANSLATOR_KEY=...
-AZURE_TRANSLATOR_ENDPOINT=https://your-translator-resource.cognitiveservices.azure.com/
-AZURE_TRANSLATOR_REGION=eastus
+AZURE_TRANSLATOR_ENDPOINT=...
+AZURE_TRANSLATOR_REGION=...
+AZURE_SPEECH_KEY=...
+AZURE_SPEECH_REGION=...
 ```
 
-未配置 Azure 时：
+未配置时：
 
-- 翻译自动回退到 `deep-translator`
-- 语音页自动显示 `Edge-TTS`
+- 翻译默认走 `deep-translator`
+- 语音默认走 `Edge-TTS`
 
 ## 常见问题
 
-### `torch.cuda.is_available()` 是 `False`
-
-- 先确认 `nvidia-smi` 正常
-- 确认驱动能支持 CUDA 12.8 轮子
-- 删除 `.venv` 后重新执行 `uv sync`
-
-```bash
-rm -rf .venv
-uv sync
-```
-
 ### `uv sync` 失败
 
-- 升级 `uv`
-- 确认系统能安装 Python 3.10
-- 网络较差时重试
-- 旧虚拟环境损坏时删除 `.venv` 后重建
+- 先看 `uv --version`
+- 再看 `python3 --version`
+- 网络慢时重试 `uv sync`
+- 代理环境下确认 PyPI / Hugging Face 可访问
 
-### 首次启动很慢
+### 首次启动慢
 
-- 启动时会下载模型与示例资源
-- `CosyVoice`、`F5-TTS`、`E2-TTS`、`dots.tts` 首次初始化都偏慢
-- `./start-linux.sh` 模式下可看 `/tmp/voice-pro.log`
+- 首次需要下载模型与示例素材
+- `demucs`、`whisperX`、`dots.tts` 首次都可能明显慢
+- 第二次启动通常快很多
 
-### CUDA / cuDNN / `whisperX` 相关报错
+### CUDA / cuDNN / `whisperX` 报错
 
-- 用 `uv run voice-pro` 或 `uv run python start-voice.py` 启动，不要绕过启动器
-- 启动器会补 `LD_LIBRARY_PATH`
-- 启动器也会给 `ctranslate2` 补 `cuDNN 8` 兼容软链接
+- 只走支持路径：`uv run voice-simple` 或 `uv run python start-voice-simple.py`
+- 不要绕过启动器直接改 `LD_LIBRARY_PATH`
+- 先确认 `torch.cuda.is_available()` 返回 `True`
 
-### 模型下载很慢
+### `Dubbing Studio` 里为什么没有 `faster-whisper` 和 `whisperX`
 
-- 首次下载属于正常现象
-- `dots.tts`、`CosyVoice` 权重体积较大
-- 网络环境差时可多次重试，已下载文件会复用
+- 这是当前代码的有意限制，不是 UI 漏项
+- 这两个引擎在 `Dubbing Studio` 端到端流程里更容易卡死或不稳定
+- 需要它们时，去 `Whisper subtitles` 页面单独转字幕
 
-### `espeak-ng` 缺失导致 `kokoro` 不工作
+### 模型下载慢
 
-- 安装系统包 `espeak-ng`
-- 确认命令 `espeak-ng --version` 可执行
+- `dots.tts`、`F5-TTS`、`CosyVoice` 会从 Hugging Face 拉权重
+- 网络差时可多次重试
 
-## 当前仓库主命令
+### 后台启动看日志
 
-当前公开入口只保留：
+- `./start-linux.sh` 模式下可看 `/tmp/voice-simple.log`
+
+## 常用命令
 
 ```bash
 uv sync
-uv run voice-pro
-uv run python start-voice.py
+uv run voice-simple
+uv run python start-voice-simple.py
+./start-linux.sh
 ```
-
-如果需要历史功能或旧平台支持，请回原始上游仓库或后续单独归档分支，不在当前主线维护范围内。

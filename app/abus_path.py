@@ -163,16 +163,6 @@ def path_new_filename(ext: str = ".wav", format: str = "%Y%m%d-%H%M%S"):
     filename = f'{path_time_string(format)}{ext}'
     return filename
 
-# def path_cache_folder(title: str = "abus"):
-#     return os.path.join(Path.home(), ".cache", title)
-
-# def path_appdata_roaming_folder(title: str = "aicover"):
-#     return os.path.join(os.getenv('APPDATA'), "ABUS", title)
-
-# def path_appdata_local_temp_folder(title: str = ""):
-#     return os.path.join(os.getenv('LOCALAPPDATA'), "Temp", title)
-
-
 def path_subfolders(folder_path: str):
     directories = []
     if not os.path.exists(folder_path):
@@ -249,26 +239,10 @@ def path_workspace_subfolder(file_path: str):
     return sub_folder    
 
 
-def path_rvc_segments_folder(subtitle_path: str):
-    formatted_time = path_time_string()
-    folder_path = os.path.dirname(subtitle_path)
-    segments_folder = os.path.join(folder_path, f"[{formatted_time}] rvc_segments")
-    if not os.path.exists(segments_folder):
-        os.makedirs(segments_folder, exist_ok=True)
-    return segments_folder
-
 def path_tts_segments_folder(subtitle_path: str):
     formatted_time = path_time_string()
     folder_path = os.path.dirname(subtitle_path)
     segments_folder = os.path.join(folder_path, f"[{formatted_time}] tts_segments")
-    if not os.path.exists(segments_folder):
-        os.makedirs(segments_folder, exist_ok=True)
-    return segments_folder
-    
-def path_xtts_segments_folder(subtitle_path: str):
-    formatted_time = path_time_string()
-    folder_path = os.path.dirname(subtitle_path)
-    segments_folder = os.path.join(folder_path, f"[{formatted_time}] xtts_segments")
     if not os.path.exists(segments_folder):
         os.makedirs(segments_folder, exist_ok=True)
     return segments_folder

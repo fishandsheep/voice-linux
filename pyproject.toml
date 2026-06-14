@@ -3,9 +3,9 @@ requires = ["setuptools>=68,<81", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "voice-pro"
+name = "voice-simple"
 version = "3.2.0"
-description = "Voice-Pro launcher and runtime for Linux NVIDIA via uv"
+description = "voice-simple launcher and runtime for Linux NVIDIA via uv"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 dependencies = [
@@ -89,7 +89,7 @@ dependencies = [
 ]
 
 [project.scripts]
-voice-pro = "voice_pro_launcher:main"
+voice-simple = "voice_simple_launcher:main"
 
 [dependency-groups]
 dev = [
@@ -97,7 +97,7 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["voice_pro_launcher"]
+py-modules = ["voice_simple_launcher"]
 
 [tool.setuptools.packages.find]
 include = ["app*", "cosyvoice*", "src*"]

@@ -10,7 +10,7 @@ def apply_triton_src_patch() -> None:
     except Exception:
         return
 
-    if getattr(triton_ops, "_voice_pro_src_patch_applied", False):
+    if getattr(triton_ops, "_voice_simple_src_patch_applied", False):
         return
 
     triton = getattr(triton_ops, "triton", None)
@@ -69,4 +69,4 @@ def apply_triton_src_patch() -> None:
         return kernel
 
     triton_ops.median_kernel = median_kernel
-    triton_ops._voice_pro_src_patch_applied = True
+    triton_ops._voice_simple_src_patch_applied = True
