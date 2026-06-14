@@ -87,6 +87,7 @@ def gulliver_tab(user_config: UserConfig):
                 with gr.Column():
                     with gr.Group():
                         gr.HTML(f'<center><h4>{i18n("Output Video")}</h4></center>')    
+                        dubbing_progress = gr.HTML(visible=False)
                         dubbing_video = gr.Video(label=i18n("Video"), interactive=False)
                         dubbing_audio = gr.Audio(label=i18n("Audio"), type="filepath", interactive=False)
                         translation_textbox = gr.Textbox(label=i18n("Translated captions"), interactive=True, show_label=True, max_lines=24, show_copy_button=True,
@@ -187,7 +188,7 @@ def gulliver_tab(user_config: UserConfig):
     submit_button.click(gulliver.gradio_upload_source,
                         inputs=[media_file, mic_audio, url_text, youtube_quality_radio, audio_format_radio],
                         outputs=[input_video, input_audio, dubbing_files])
-    clear_button.add([input_video, input_audio, transcription_textbox, dubbing_video, dubbing_audio, translation_textbox])
+    clear_button.add([input_video, input_audio, transcription_textbox, dubbing_video, dubbing_audio, translation_textbox, dubbing_progress])
 
     
     # Whisper Subtitle
@@ -211,7 +212,7 @@ def gulliver_tab(user_config: UserConfig):
                              outputs=[source_language_dropdown])
     translate_button.click(gulliver.gradio_translate,
                               inputs=[source_language_dropdown, transcription_textbox, translate_language_dropdown],
-                              outputs=[dubbing_video, dubbing_audio, translation_textbox, dubbing_files])
+                              outputs=[dubbing_video, dubbing_audio, translation_textbox, dubbing_files, dubbing_progress])
 
    
     # Edge-TTS or Azure-TTS   
@@ -231,7 +232,7 @@ def gulliver_tab(user_config: UserConfig):
                         translation_textbox, 
                         ms_voice_dropdown, 
                         edge_tts_pitch, edge_tts_rate, edge_tts_volume, audio_format_radio], 
-                outputs=[dubbing_video, dubbing_audio, dubbing_files]) 
+                outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress]) 
                   
     # F5-TTS
     f5_language_radio.change(f5_reference_voice.gradio_change_language,
@@ -253,7 +254,7 @@ def gulliver_tab(user_config: UserConfig):
                     translation_textbox, 
                     f5_voice_dropdown, f5_reference_audio, f5_reference_transcript,
                     f5_model_choice, f5_tts_speed, audio_format_radio], 
-            outputs=[dubbing_video, dubbing_audio, dubbing_files])     
+            outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress])     
     
 
     # CosyVoice     
@@ -276,7 +277,7 @@ def gulliver_tab(user_config: UserConfig):
                         translation_textbox, 
                         cosy_voice_dropdown, cosy_reference_audio, cosy_reference_transcript, 
                         cosy_mode_choice, cosy_tts_speed, audio_format_radio], 
-                outputs=[dubbing_video, dubbing_audio, dubbing_files])     
+                outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress])     
     
     
     # kokoro
@@ -293,7 +294,7 @@ def gulliver_tab(user_config: UserConfig):
 
     kokoro_dubbing_button.click(gulliver.gradio_kokoro_dubbing, 
                 inputs=[translation_textbox, kokoro_language_dropdown, kokoro_voice_dropdown, kokoro_tts_speed, audio_format_radio], 
-                outputs=[dubbing_video, dubbing_audio, dubbing_files])
+                outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress])
 
     # dots.tts
     dots_language_radio.change(dots_reference_voice.gradio_change_language, inputs=[dots_language_radio], outputs=[dots_voice_dropdown])
@@ -319,5 +320,5 @@ def gulliver_tab(user_config: UserConfig):
             dots_normalize_text,
             audio_format_radio,
         ],
-        outputs=[dubbing_video, dubbing_audio, dubbing_files],
+        outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress],
     )

@@ -337,7 +337,10 @@ class GradioGulliver:
                         source_lang, transcription_text, target_lang):
         if len(transcription_text) < 1:
             logger.warning(f"[gradio_gulliver.py] gradio_translate - no actions")
-            return None, None, None, self.fm.get_all_files() 
+            yield None, None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing translation...")
         
         self.user_config.set("translate_source_language", source_lang)            
         self.user_config.set("translate_target_language", target_lang)    
@@ -347,6 +350,9 @@ class GradioGulliver:
             subs = pysubs2.SSAFile.from_string(transcription_text)
             transcription_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
             subs.save(transcription_file)
+            yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(35, "Subtitle file ready. Translating...")
+        else:
+            yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(35, "Translating text...")
 
         translation_file = None
         translation_text = None
@@ -355,13 +361,15 @@ class GradioGulliver:
         else:
             translation_text = self._translate_text(transcription_text, source_lang, target_lang)
 
+        yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(80, "Preparing output preview...")
+
         source_video_file = self.fm.get_split("Source.video")
         source_audio_file = self.fm.get_split("Source.audio")
         
         output_video_path = (source_video_file, translation_file) if source_video_file and translation_file else source_video_file
         output_audio_path = source_audio_file
         output_translation_text = self._read_file(translation_file) if translation_file else translation_text
-        return output_video_path, output_audio_path, output_translation_text, self.fm.get_all_files()    
+        yield output_video_path, output_audio_path, output_translation_text, self.fm.get_all_files(), self._progress_done("Translation complete")
                            
 
     def _read_file(self, filepath):    
@@ -416,6 +424,34 @@ class GradioGulliver:
             return "dots-tts"
         return voice_name.replace("/", "-")
 
+    @staticmethod
+    def _progress_markup(percent: int, message: str) -> str:
+        safe_percent = max(0, min(100, int(percent)))
+        safe_message = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"""
+<div style="padding:10px 12px;margin-bottom:12px;border:1px solid #3a3a3a;border-radius:10px;background:#1f1f1f;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#e5e5e5;font-size:13px;">
+    <span>{safe_message}</span>
+    <span>{safe_percent}%</span>
+  </div>
+  <div style="height:8px;background:#2c2c2c;border-radius:999px;overflow:hidden;">
+    <div style="height:100%;width:{safe_percent}%;background:linear-gradient(90deg,#ff9b38 0%,#ff6a00 100%);transition:width 0.2s ease;"></div>
+  </div>
+</div>
+"""
+
+    @classmethod
+    def _progress_update(cls, percent: int, message: str, visible: bool = True):
+        return gr.update(value=cls._progress_markup(percent, message), visible=visible)
+
+    @classmethod
+    def _progress_done(cls, message: str):
+        return cls._progress_update(100, message, visible=True)
+
+    @staticmethod
+    def _progress_hidden():
+        return gr.update(value="", visible=False)
+
 
            
 
@@ -433,7 +469,10 @@ class GradioGulliver:
         
         if len(translation_text) < 1:
             logger.warning(f"[gradio_gulliver.py] gradio_edge_dubbing - no actions")
-            return None, None, self.fm.get_all_files() 
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
         
         self.user_config.set("edge_tts_pitch", semitones)     
         self.user_config.set("edge_tts_rate", speed_factor)
@@ -451,6 +490,7 @@ class GradioGulliver:
             translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
             subs.save(translation_file)   
 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
 
         if translation_file:
             aidub_video_file, mixed_audio_file = self._edge_tts_subtitle(translation_file, 
@@ -459,9 +499,11 @@ class GradioGulliver:
             aidub_video_file, mixed_audio_file = self._edge_tts_text(translation_text, 
                                                 voice_name, semitones, speed_factor, volume_factor, audio_format)
 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
+
         output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
         output_audio_path = mixed_audio_file
-        return output_video_path, output_audio_path, self.fm.get_all_files()      
+        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
                             
 
     def _edge_tts_text(self, text: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str):
@@ -559,7 +601,10 @@ class GradioGulliver:
         
         if len(translation_text) < 1:
             logger.warning(f"[gradio_gulliver.py] gradio_f5_dubbing_single - no actions")
-            return None, None, self.fm.get_all_files() 
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
         
             
         translation_file = None 
@@ -568,6 +613,8 @@ class GradioGulliver:
             translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
             subs.save(translation_file)                    
                 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+
 
         aidub_video_file = None
         mixed_audio_file = None                
@@ -579,9 +626,11 @@ class GradioGulliver:
             aidub_video_file, mixed_audio_file = self._f5_tts_single(translation_text, 
                                                 celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format)
 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
+
         output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
         output_audio_path = mixed_audio_file
-        return output_video_path, output_audio_path, self.fm.get_all_files()                   
+        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
                   
         
        
@@ -628,7 +677,10 @@ class GradioGulliver:
                         mode_choice, speed_factor, audio_format: str):
         if len(translation_text) < 1:
             logger.warning(f"[gradio_gulliver.py] gradio_f5_dubbing_single - no actions")
-            return None, None, self.fm.get_all_files() 
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
         
             
         translation_file = None 
@@ -637,6 +689,8 @@ class GradioGulliver:
             translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
             subs.save(translation_file)                    
                 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+
 
         aidub_video_file = None
         mixed_audio_file = None   
@@ -648,9 +702,11 @@ class GradioGulliver:
             aidub_video_file, mixed_audio_file = self._cosy_tts_single(translation_text, 
                                                 celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format)
 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
+
         output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
         output_audio_path = mixed_audio_file
-        return output_video_path, output_audio_path, self.fm.get_all_files()        
+        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
 
    
     
@@ -702,7 +758,10 @@ class GradioGulliver:
         
         if len(translation_text) < 1:
             logger.warning(f"[gradio_gulliver.py] gradio_kokoro_dubbing - no actions")
-            return None, None, self.fm.get_all_files() 
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
         
         # self.user_config.set("edge_tts_rate", speed_factor)  
         self.user_config.set("audio_format", audio_format)
@@ -717,6 +776,8 @@ class GradioGulliver:
             translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
             subs.save(translation_file)   
 
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+
 
         if translation_file:
             aidub_video_file, mixed_audio_file = self._kokoro_tts_subtitle(translation_file, 
@@ -725,10 +786,12 @@ class GradioGulliver:
             aidub_video_file, mixed_audio_file = self._kokoro_tts_text(translation_text, 
                                                 language_name, voice_name, speed_factor, audio_format)
         
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
+        
         
         output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
         output_audio_path = mixed_audio_file
-        return output_video_path, output_audio_path, self.fm.get_all_files()        
+        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
                      
         
     def _kokoro_tts_text(self, text: str, language_name, voice_name: str, speed_factor, audio_format: str):
@@ -836,7 +899,10 @@ class GradioGulliver:
 
         if len(translation_text) < 1:
             logger.warning("[gradio_gulliver.py] gradio_dots_dubbing - no actions")
-            return None, None, self.fm.get_all_files()
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
 
         self.user_config.set("dots_model", model_choice)
         self.user_config.set("dots_language", language_tag)
@@ -855,6 +921,8 @@ class GradioGulliver:
         voice_label = self._safe_voice_label(celeb_name)
         aidub_video_file = None
         mixed_audio_file = None
+
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
 
         if translation_file:
             aidub_video_file, mixed_audio_file = self._dots_tts_subtitle(
@@ -886,7 +954,8 @@ class GradioGulliver:
             )
 
         output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        return output_video_path, mixed_audio_file, self.fm.get_all_files()
+        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
+        yield output_video_path, mixed_audio_file, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
 
     def _dots_tts_text(
         self,
