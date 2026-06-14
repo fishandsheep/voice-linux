@@ -1,6 +1,8 @@
 
 import json
 import asyncio
+import threading
+import time
 import pysubs2
 
 from src.config import UserConfig
@@ -28,6 +30,51 @@ logger = structlog.get_logger()
 
 
 class GradioGulliver:
+    class OutputProgressBridge:
+        def __init__(self, start: float = 0.0, end: float = 1.0, desc: str = "Working...", parent=None):
+            self.start = float(start)
+            self.end = float(end)
+            self.fraction = float(start)
+            self.desc = desc
+            self.lock = threading.Lock()
+            self.parent = parent
+
+        def set(self, fraction: float, desc: str | None = None):
+            clamped = max(0.0, min(1.0, fraction))
+            if self.parent is not None:
+                scaled = self.start + (self.end - self.start) * clamped
+                self.parent.set(scaled, desc if desc is not None else self.desc)
+                return
+            with self.lock:
+                self.fraction = clamped
+                if desc is not None:
+                    self.desc = desc
+
+        def __call__(self, value: float | tuple, desc: str | None = None):
+            if isinstance(value, tuple):
+                current, total = value
+                value = 0.0 if not total else current / total
+            self.set(float(value), desc)
+
+        def tqdm(self, iterable, desc: str = "Working..."):
+            items = list(iterable)
+            total = len(items)
+            if total == 0:
+                self.set(self.end, desc)
+                return items
+
+            for index, item in enumerate(items, start=1):
+                self((index - 1, total), desc=desc)
+                yield item
+            self((total, total), desc=desc)
+
+        def snapshot(self):
+            with self.lock:
+                return self.fraction, self.desc
+
+        def child(self, start: float, end: float, desc: str = "Working..."):
+            return GradioGulliver.OutputProgressBridge(start=start, end=end, desc=desc, parent=self)
+
     def __init__(self, user_config: UserConfig):
         self.user_config = user_config
         
@@ -339,37 +386,50 @@ class GradioGulliver:
             logger.warning(f"[gradio_gulliver.py] gradio_translate - no actions")
             yield None, None, None, self.fm.get_all_files(), self._progress_hidden()
             return
+        self.user_config.set("translate_source_language", source_lang)
+        self.user_config.set("translate_target_language", target_lang)
 
-        yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing translation...")
-        
-        self.user_config.set("translate_source_language", source_lang)            
-        self.user_config.set("translate_target_language", target_lang)    
+        def worker(progress):
+            progress.set(0.05, "Preparing translation...")
 
-        transcription_file = None
-        if self._is_subtitle_format(transcription_text):
-            subs = pysubs2.SSAFile.from_string(transcription_text)
-            transcription_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(transcription_file)
-            yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(35, "Subtitle file ready. Translating...")
-        else:
-            yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(35, "Translating text...")
+            transcription_file = None
+            if self._is_subtitle_format(transcription_text):
+                subs = pysubs2.SSAFile.from_string(transcription_text)
+                transcription_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(transcription_file)
+                progress.set(0.12, "Subtitle file ready. Translating...")
+            else:
+                progress.set(0.12, "Translating text...")
 
-        translation_file = None
-        translation_text = None
-        if transcription_file:
-            translation_file = self._translate_subtitle(transcription_file, source_lang, target_lang, preprocess_for_tts=False)
-        else:
-            translation_text = self._translate_text(transcription_text, source_lang, target_lang)
+            translation_file = None
+            translation_text = None
+            if transcription_file:
+                translation_file = self._translate_subtitle(
+                    transcription_file,
+                    source_lang,
+                    target_lang,
+                    preprocess_for_tts=False,
+                    progress=progress.child(0.12, 0.85, "Translating subtitles..."),
+                )
+            else:
+                translation_text = self._translate_text(
+                    transcription_text,
+                    source_lang,
+                    target_lang,
+                    progress=progress.child(0.12, 0.85, "Translating text..."),
+                )
 
-        yield gr.update(), gr.update(), gr.update(), gr.update(), self._progress_update(80, "Preparing output preview...")
+            progress.set(0.92, "Preparing output preview...")
 
-        source_video_file = self.fm.get_split("Source.video")
-        source_audio_file = self.fm.get_split("Source.audio")
-        
-        output_video_path = (source_video_file, translation_file) if source_video_file and translation_file else source_video_file
-        output_audio_path = source_audio_file
-        output_translation_text = self._read_file(translation_file) if translation_file else translation_text
-        yield output_video_path, output_audio_path, output_translation_text, self.fm.get_all_files(), self._progress_done("Translation complete")
+            source_video_file = self.fm.get_split("Source.video")
+            source_audio_file = self.fm.get_split("Source.audio")
+            output_video_path = (source_video_file, translation_file) if source_video_file and translation_file else source_video_file
+            output_audio_path = source_audio_file
+            output_translation_text = self._read_file(translation_file) if translation_file else translation_text
+            progress.set(1.0, "Translation complete")
+            return output_video_path, output_audio_path, output_translation_text, self.fm.get_all_files()
+
+        yield from self._run_with_output_progress(worker, output_count=4, start_desc="Preparing translation...")
                            
 
     def _read_file(self, filepath):    
@@ -383,7 +443,7 @@ class GradioGulliver:
             return "Error: Unable to read the file."
         
         
-    def _translate_subtitle(self, subtitle_file, source_lang, target_lang, preprocess_for_tts: bool = True):
+    def _translate_subtitle(self, subtitle_file, source_lang, target_lang, preprocess_for_tts: bool = True, progress=None):
         try:
             translation_file = path_add_postfix(subtitle_file, f"_{target_lang}")
             logger.info(
@@ -393,7 +453,14 @@ class GradioGulliver:
                 subtitle_file,
                 preprocess_for_tts,
             )
-            self.translator.translate_file(source_lang, target_lang, subtitle_file, translation_file, preprocess_for_tts=preprocess_for_tts)
+            self.translator.translate_file(
+                source_lang,
+                target_lang,
+                subtitle_file,
+                translation_file,
+                progress=progress,
+                preprocess_for_tts=preprocess_for_tts,
+            )
             
             target_lang_code = self.translator.get_language_code(target_lang)
             self.fm.set_translation(target_lang_code, translation_file)            
@@ -403,9 +470,9 @@ class GradioGulliver:
             gr.Warning(f'{e}')
             return None           
 
-    def _translate_text(self, text, source_lang, target_lang):
+    def _translate_text(self, text, source_lang, target_lang, progress=None):
         try:
-            translated = self.translator.translate_text(source_lang, target_lang, text)
+            translated = self.translator.translate_text(source_lang, target_lang, text, progress=progress)
             return translated   
         except Exception as e:
             logger.error(f"[gradio_gulliver.py] _translate_text - error: {e}")
@@ -452,6 +519,32 @@ class GradioGulliver:
     def _progress_hidden():
         return gr.update(value="", visible=False)
 
+    def _run_with_output_progress(self, worker, output_count: int, start_desc: str):
+        bridge = self.OutputProgressBridge(desc=start_desc)
+        state = {"result": None, "error": None}
+
+        def _target():
+            try:
+                state["result"] = worker(bridge)
+            except Exception as e:
+                state["error"] = e
+
+        thread = threading.Thread(target=_target, daemon=True)
+        thread.start()
+
+        while thread.is_alive():
+            fraction, desc = bridge.snapshot()
+            yield (*([gr.update()] * output_count), self._progress_update(int(fraction * 100), desc))
+            time.sleep(0.2)
+
+        thread.join()
+        if state["error"] is not None:
+            raise state["error"]
+
+        fraction, desc = bridge.snapshot()
+        final_desc = desc if fraction < 0.999 else desc.replace("...", "").strip() or "Done"
+        yield (*state["result"], self._progress_done(final_desc))
+
 
            
 
@@ -472,41 +565,44 @@ class GradioGulliver:
             yield None, None, self.fm.get_all_files(), self._progress_hidden()
             return
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
-        
         self.user_config.set("edge_tts_pitch", semitones)     
         self.user_config.set("edge_tts_rate", speed_factor)
         self.user_config.set("edge_tts_volume", volume_factor)             
         self.user_config.set("audio_format", audio_format)
         voice_name = self._match_voice_to_target_language(voice_name)
         
-        
-        aidub_video_file = None
-        mixed_audio_file = None                
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
 
-        translation_file = None 
-        if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-            subs = pysubs2.SSAFile.from_string(translation_text)
-            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(translation_file)   
+            aidub_video_file = None
+            mixed_audio_file = None
+            translation_file = None
+            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
+                subs = pysubs2.SSAFile.from_string(translation_text)
+                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(translation_file)
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._edge_tts_subtitle(
+                    translation_file, voice_name, semitones, speed_factor, volume_factor, audio_format, progress=synth_progress
+                )
+            elif translation_text:
+                aidub_video_file, mixed_audio_file = self._edge_tts_text(
+                    translation_text, voice_name, semitones, speed_factor, volume_factor, audio_format, progress=synth_progress
+                )
 
-        if translation_file:
-            aidub_video_file, mixed_audio_file = self._edge_tts_subtitle(translation_file, 
-                                                voice_name, semitones, speed_factor, volume_factor, audio_format)  
-        elif translation_text:
-            aidub_video_file, mixed_audio_file = self._edge_tts_text(translation_text, 
-                                                voice_name, semitones, speed_factor, volume_factor, audio_format)
+            progress.set(0.82, "Mixing audio...")
+            progress.set(0.92, "Refreshing output video...")
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            output_audio_path = mixed_audio_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, output_audio_path, self.fm.get_all_files()
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
-
-        output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        output_audio_path = mixed_audio_file
-        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
                             
 
-    def _edge_tts_text(self, text: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str):
+    def _edge_tts_text(self, text: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str, progress=None):
         try:
             # TTS voice
             ms_voice = self.ms_voice_manager.get_voice(voice_name)
@@ -516,7 +612,7 @@ class GradioGulliver:
             source_audio_file = self.fm.get_split("Source.audio")                        
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{target_language}")        
             
-            self.edge_tts.text_to_voice(text, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format)
+            self.edge_tts.text_to_voice(text, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format, progress=progress)
 
             self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
 
@@ -543,7 +639,7 @@ class GradioGulliver:
     
     
     def _edge_tts_subtitle(self, 
-                           subtitle_file, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str):
+                           subtitle_file, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str, progress=None):
         logger.debug(f"[gradio_gulliver.py] _edge_tts_subtitle - subtitle_file = {subtitle_file}, voice_name = {voice_name}, \
                      semitones = {semitones}, speed_factor = {speed_factor}, volume_factor = {volume_factor}, audio_format = {audio_format}")
         
@@ -556,7 +652,7 @@ class GradioGulliver:
             source_audio_file = self.fm.get_split("Source.audio")                        
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{target_language}")        
             
-            self.edge_tts.srt_to_voice(subtitle_file, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format)
+            self.edge_tts.srt_to_voice(subtitle_file, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format, progress=progress)
 
             self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
         
@@ -604,37 +700,36 @@ class GradioGulliver:
             yield None, None, self.fm.get_all_files(), self._progress_hidden()
             return
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
-        
-            
-        translation_file = None 
-        if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-            subs = pysubs2.SSAFile.from_string(translation_text)
-            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(translation_file)                    
-                
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = None
+            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
+                subs = pysubs2.SSAFile.from_string(translation_text)
+                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(translation_file)
 
+            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._f5_tts_single(
+                    self._read_file(translation_file), celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=synth_progress
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._f5_tts_single(
+                    translation_text, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=synth_progress
+                )
 
-        aidub_video_file = None
-        mixed_audio_file = None                
+            progress.set(0.82, "Mixing audio...")
+            progress.set(0.92, "Refreshing output video...")
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            output_audio_path = mixed_audio_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, output_audio_path, self.fm.get_all_files()
 
-        if translation_file:
-            aidub_video_file, mixed_audio_file = self._f5_tts_single(self._read_file(translation_file), 
-                                                celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format)
-        elif translation_text:
-            aidub_video_file, mixed_audio_file = self._f5_tts_single(translation_text, 
-                                                celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format)
-
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
-
-        output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        output_audio_path = mixed_audio_file
-        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
                   
         
        
-    def _f5_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format: str):
+    def _f5_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format: str, progress=None):
         logger.debug(f"[gradio_gulliver.py] _f5_tts_single - text = {text}, \
                     celeb_name = {celeb_name}, celeb_audio = {celeb_audio}, \
                     model_choice = {model_choice}, speed_factor = {speed_factor}, audio_format = {audio_format}")     
@@ -643,7 +738,7 @@ class GradioGulliver:
             # F5-TTS
             source_audio_file = self.fm.get_split("Source.audio")           
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{celeb_name}")                               
-            self.f5_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format)
+            self.f5_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=progress)
             
             # Mix
             mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{celeb_name}")            
@@ -680,37 +775,36 @@ class GradioGulliver:
             yield None, None, self.fm.get_all_files(), self._progress_hidden()
             return
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
-        
-            
-        translation_file = None 
-        if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-            subs = pysubs2.SSAFile.from_string(translation_text)
-            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(translation_file)                    
-                
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = None
+            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
+                subs = pysubs2.SSAFile.from_string(translation_text)
+                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(translation_file)
 
+            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._cosy_tts_single(
+                    self._read_file(translation_file), celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=synth_progress
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._cosy_tts_single(
+                    translation_text, celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=synth_progress
+                )
 
-        aidub_video_file = None
-        mixed_audio_file = None   
-                
-        if translation_file:
-            aidub_video_file, mixed_audio_file = self._cosy_tts_single(self._read_file(translation_file), 
-                                                celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format)
-        elif translation_text:
-            aidub_video_file, mixed_audio_file = self._cosy_tts_single(translation_text, 
-                                                celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format)
+            progress.set(0.82, "Mixing audio...")
+            progress.set(0.92, "Refreshing output video...")
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            output_audio_path = mixed_audio_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, output_audio_path, self.fm.get_all_files()
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
-
-        output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        output_audio_path = mixed_audio_file
-        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
 
    
     
-    def _cosy_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format: str):
+    def _cosy_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format: str, progress=None):
         logger.debug(f"[gradio_gulliver.py] _cosy_tts_single - text = {text}, \
                     celeb_name = {celeb_name}, celeb_audio = {celeb_audio}, \
                     mode_choice = {mode_choice}, speed_factor = {speed_factor}, audio_format = {audio_format}")     
@@ -719,7 +813,7 @@ class GradioGulliver:
             # F5-TTS
             source_audio_file = self.fm.get_split("Source.audio")           
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{celeb_name}")                               
-            self.cosy_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format)
+            self.cosy_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=progress)
             
             # Mix
             mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{celeb_name}")            
@@ -761,40 +855,38 @@ class GradioGulliver:
             yield None, None, self.fm.get_all_files(), self._progress_hidden()
             return
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
-        
         # self.user_config.set("edge_tts_rate", speed_factor)  
         self.user_config.set("audio_format", audio_format)
         
-        
-        aidub_video_file = None
-        mixed_audio_file = None                
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = None
+            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
+                subs = pysubs2.SSAFile.from_string(translation_text)
+                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(translation_file)
 
-        translation_file = None 
-        if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-            subs = pysubs2.SSAFile.from_string(translation_text)
-            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(translation_file)   
+            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._kokoro_tts_subtitle(
+                    translation_file, language_name, voice_name, speed_factor, audio_format, progress=synth_progress
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._kokoro_tts_text(
+                    translation_text, language_name, voice_name, speed_factor, audio_format, progress=synth_progress
+                )
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+            progress.set(0.82, "Mixing audio...")
+            progress.set(0.92, "Refreshing output video...")
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            output_audio_path = mixed_audio_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, output_audio_path, self.fm.get_all_files()
 
-
-        if translation_file:
-            aidub_video_file, mixed_audio_file = self._kokoro_tts_subtitle(translation_file, 
-                                                language_name, voice_name, speed_factor, audio_format)  
-        elif translation_text:
-            aidub_video_file, mixed_audio_file = self._kokoro_tts_text(translation_text, 
-                                                language_name, voice_name, speed_factor, audio_format)
-        
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
-        
-        
-        output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        output_audio_path = mixed_audio_file
-        yield output_video_path, output_audio_path, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
                      
         
-    def _kokoro_tts_text(self, text: str, language_name, voice_name: str, speed_factor, audio_format: str):
+    def _kokoro_tts_text(self, text: str, language_name, voice_name: str, speed_factor, audio_format: str, progress=None):
         try:
             # TTS voice
             kokoro_voice = self.kokoro_vm.find_voice(language_name, voice_name)
@@ -803,7 +895,7 @@ class GradioGulliver:
             source_audio_file = self.fm.get_split("Source.audio")                        
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_name}")        
             
-            self.kokoro_tts.text_to_voice(text, aidub_audio_file, kokoro_voice, speed_factor, audio_format)
+            self.kokoro_tts.text_to_voice(text, aidub_audio_file, kokoro_voice, speed_factor, audio_format, progress=progress)
 
             self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
 
@@ -830,7 +922,7 @@ class GradioGulliver:
     
     
     def _kokoro_tts_subtitle(self, 
-                           subtitle_file, language_name, voice_name: str, speed_factor, audio_format: str):
+                           subtitle_file, language_name, voice_name: str, speed_factor, audio_format: str, progress=None):
         logger.debug(f"[gradio_gulliver.py] _kokoro_tts_subtitle - subtitle_file = {subtitle_file}, \
                     voice_name = {voice_name}, language_name = {language_name}, \
                     speed_factor = {speed_factor}, audio_format = {audio_format}")
@@ -843,7 +935,7 @@ class GradioGulliver:
             source_audio_file = self.fm.get_split("Source.audio")                        
             aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_name}")        
             
-            self.kokoro_tts.srt_to_voice(subtitle_file, aidub_audio_file, kokoro_voice, speed_factor, audio_format)
+            self.kokoro_tts.srt_to_voice(subtitle_file, aidub_audio_file, kokoro_voice, speed_factor, audio_format, progress=progress)
 
             self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
         
@@ -902,8 +994,6 @@ class GradioGulliver:
             yield None, None, self.fm.get_all_files(), self._progress_hidden()
             return
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(10, "Preparing dubbing...")
-
         self.user_config.set("dots_model", model_choice)
         self.user_config.set("dots_language", language_tag)
         self.user_config.set("dots_num_steps", int(num_steps))
@@ -912,50 +1002,34 @@ class GradioGulliver:
         self.user_config.set("dots_normalize_text", bool(normalize_text))
         self.user_config.set("audio_format", audio_format)
 
-        translation_file = None
-        if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-            subs = pysubs2.SSAFile.from_string(translation_text)
-            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-            subs.save(translation_file)
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = None
+            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
+                subs = pysubs2.SSAFile.from_string(translation_text)
+                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+                subs.save(translation_file)
 
-        voice_label = self._safe_voice_label(celeb_name)
-        aidub_video_file = None
-        mixed_audio_file = None
+            voice_label = self._safe_voice_label(celeb_name)
+            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._dots_tts_subtitle(
+                    translation_file, voice_label, celeb_audio, celeb_transcript, model_choice, language_tag,
+                    num_steps, guidance_scale, seed, normalize_text, audio_format, progress=synth_progress
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._dots_tts_text(
+                    translation_text, voice_label, celeb_audio, celeb_transcript, model_choice, language_tag,
+                    num_steps, guidance_scale, seed, normalize_text, audio_format, progress=synth_progress
+                )
 
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(35, "Generating speech...")
+            progress.set(0.82, "Mixing audio...")
+            progress.set(0.92, "Refreshing output video...")
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, mixed_audio_file, self.fm.get_all_files()
 
-        if translation_file:
-            aidub_video_file, mixed_audio_file = self._dots_tts_subtitle(
-                translation_file,
-                voice_label,
-                celeb_audio,
-                celeb_transcript,
-                model_choice,
-                language_tag,
-                num_steps,
-                guidance_scale,
-                seed,
-                normalize_text,
-                audio_format,
-            )
-        elif translation_text:
-            aidub_video_file, mixed_audio_file = self._dots_tts_text(
-                translation_text,
-                voice_label,
-                celeb_audio,
-                celeb_transcript,
-                model_choice,
-                language_tag,
-                num_steps,
-                guidance_scale,
-                seed,
-                normalize_text,
-                audio_format,
-            )
-
-        output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-        yield gr.update(), gr.update(), gr.update(), self._progress_update(85, "Refreshing output video...")
-        yield output_video_path, mixed_audio_file, self.fm.get_all_files(), self._progress_done("Speech synthesis complete")
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
 
     def _dots_tts_text(
         self,
@@ -970,6 +1044,7 @@ class GradioGulliver:
         seed,
         normalize_text,
         audio_format: str,
+        progress=None,
     ):
         try:
             source_audio_file = self.fm.get_split("Source.audio")
@@ -986,6 +1061,7 @@ class GradioGulliver:
                 seed,
                 normalize_text,
                 audio_format,
+                progress=progress,
             )
 
             mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
@@ -1018,6 +1094,7 @@ class GradioGulliver:
         seed,
         normalize_text,
         audio_format: str,
+        progress=None,
     ):
         try:
             source_audio_file = self.fm.get_split("Source.audio")
@@ -1034,6 +1111,7 @@ class GradioGulliver:
                 seed,
                 normalize_text,
                 audio_format,
+                progress=progress,
             )
 
             mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
