@@ -10,10 +10,8 @@ import yaml
 import src.shared as shared
 
     
-with open(Path(__file__).resolve().parent / 'css/NotoSans/stylesheet.css', 'r') as f:
-    css = f.read()
 with open(Path(__file__).resolve().parent / 'css/main.css', 'r') as f:
-    css += f.read()
+    css = f.read()
 with open(Path(__file__).resolve().parent / 'js/main.js', 'r') as f:
     js = f.read()
 with open(Path(__file__).resolve().parent / 'js/save_files.js', 'r') as f:

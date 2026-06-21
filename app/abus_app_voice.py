@@ -52,15 +52,22 @@ from app.tab_translate import translate_tab
 
 
 def create_ui(user_config: UserConfig):
-    # css/js strings
     css = ui.css
-    js = ui.js
-    
-    system = platform.system()    
+
+    system = platform.system()
     initial_language = normalize_language(user_config.get("gradio_language", "English"))
     set_active_language(initial_language)
 
-    with gr.Blocks(title='voice-simple', css=css, theme=ui.theme) as gradio_interface:
+    with gr.Blocks(
+        title='voice-simple',
+        css=css,
+        theme=ui.theme,
+        js="""
+        () => {
+            document.body?.classList.add(\"dark\");
+        }
+        """,
+    ) as gradio_interface:
         language_dropdown = gr.Dropdown(
             label="UI Language",
             choices=list(SUPPORTED_UI_LANGUAGES.keys()),
@@ -102,11 +109,6 @@ def create_ui(user_config: UserConfig):
                     tts_dots_tab(user_config)
 
             create_app_footer()
-        
-        
-        gradio_interface.load(None, None, None, js="() => document.getElementsByTagName('body')[0].classList.add('dark')")
-        gradio_interface.load(None, None, None, js=f"() => {{{js}}}")
-                    
 
     if system == "Windows":
         gradio_interface.launch(
