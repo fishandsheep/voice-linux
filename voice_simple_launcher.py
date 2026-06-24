@@ -55,6 +55,22 @@ def configure_nvidia_library_path() -> None:
     os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(path_parts)
 
 
+def _ensure_demucs_yaml_configs() -> None:
+    import shutil
+    demucs_remote_dir = PROJECT_ROOT / "src" / "demucs" / "remote"
+    demucs_model_dir = PROJECT_ROOT / "model" / "demucs"
+
+    if not demucs_remote_dir.exists():
+        return
+
+    demucs_model_dir.mkdir(parents=True, exist_ok=True)
+
+    for yaml_file in demucs_remote_dir.glob("*.yaml"):
+        target = demucs_model_dir / yaml_file.name
+        if not target.exists():
+            shutil.copy(yaml_file, target)
+
+
 def ensure_ctranslate2_cudnn_compat() -> None:
     with suppress(ImportError):
         import ctranslate2
@@ -106,6 +122,7 @@ def main() -> None:
     genuine_init()
     AbusHuggingFace.initialize(app_name="voice")
     AbusHuggingFace.hf_download_models(file_type="demucs", level=0)
+    _ensure_demucs_yaml_configs()
     AbusHuggingFace.hf_download_models(file_type="edge-tts", level=0)
     AbusHuggingFace.hf_download_models(file_type="kokoro", level=0)
     AbusHuggingFace.hf_download_models(file_type="cosyvoice", level=0)
