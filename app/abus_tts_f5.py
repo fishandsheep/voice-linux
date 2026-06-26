@@ -77,10 +77,12 @@ class ModelPathManager:
 
 
 class F5TTS:
+    _shared_vocoder = None
+
     def __init__(self):
         config_path = os.path.join(Path(__file__).resolve().parent, "abus_tts_f5_models.json")
         self.manager = ModelPathManager(config_path)
-        self.vocoder = load_vocoder()
+        self.vocoder = None
         
 
 
@@ -113,6 +115,33 @@ class F5TTS:
             self.ema_model = self.load_e2tts()
         else:
             self.ema_model = self.load_f5tts(model_choice)
+
+    def ensure_vocoder_loaded(self):
+        if self.vocoder is not None:
+            return self.vocoder
+
+        if F5TTS._shared_vocoder is None:
+            local_vocoder_dir = os.path.join(path_model_folder(), "vocos-mel-24khz")
+            if os.path.isdir(local_vocoder_dir) and os.path.exists(os.path.join(local_vocoder_dir, "config.yaml")):
+                F5TTS._shared_vocoder = load_vocoder(is_local=True, local_path=local_vocoder_dir)
+            else:
+                from app.abus_download_progress import download_hf_file_with_resume
+
+                os.makedirs(local_vocoder_dir, exist_ok=True)
+                download_hf_file_with_resume(
+                    repo_id="charactr/vocos-mel-24khz",
+                    filename="config.yaml",
+                    local_path=os.path.join(local_vocoder_dir, "config.yaml"),
+                )
+                download_hf_file_with_resume(
+                    repo_id="charactr/vocos-mel-24khz",
+                    filename="pytorch_model.bin",
+                    local_path=os.path.join(local_vocoder_dir, "pytorch_model.bin"),
+                )
+                F5TTS._shared_vocoder = load_vocoder(is_local=True, local_path=local_vocoder_dir)
+
+        self.vocoder = F5TTS._shared_vocoder
+        return self.vocoder
         
     
     
@@ -252,6 +281,7 @@ class F5TTS:
     
     
     def infer_single(self, dubbing_text:str, output_file, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format: str, progress=gr.Progress()):
+        self.ensure_vocoder_loaded()
         self.select_model(model_choice)
         ref_audio, ref_text = preprocess_ref_audio_text(celeb_audio, celeb_transcript)
         
@@ -272,6 +302,7 @@ class F5TTS:
 
             
     def infer_multi(self, dubbing_text:str, output_file, celeb_audio1, celeb_transcript1, celeb_audio2, celeb_transcript2, model_choice, speed_factor, audio_format: str, progress=gr.Progress()):
+        self.ensure_vocoder_loaded()
         self.select_model(model_choice)
         ref_audio1, ref_text1 = preprocess_ref_audio_text(celeb_audio1, celeb_transcript1)
         ref_audio2, ref_text2 = preprocess_ref_audio_text(celeb_audio2, celeb_transcript2)

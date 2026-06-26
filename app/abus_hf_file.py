@@ -3,8 +3,8 @@ import zipfile
 import shutil
 
 from pathlib import Path
-from huggingface_hub import hf_hub_download
 
+from app.abus_download_progress import download_hf_file_with_resume
 from app.abus_path import *
 
 import structlog
@@ -39,17 +39,19 @@ class HF_File():
     
     def download(self, force_download: bool = False):
         try:      
-            cache_dir = os.path.join(Path.home(), ".cache", "huggingface", "hub")
-            hf_download_path = hf_hub_download(repo_id=self.repo_id, filename=self.file_name, subfolder=self.subfolder, cache_dir=cache_dir, force_download=force_download)
-            logger.debug(f'[abus_hf_file.py] download - hf_download_path : {hf_download_path}')    
-                        
             download_folder = os.path.join(path_model_folder(), self.file_type, self.subfolder)
             if not os.path.exists(download_folder):
                 os.makedirs(download_folder, exist_ok=True)
 
             download_file_path = os.path.join(download_folder, self.file_name)
             if self.has_local_file() == False:                                
-                shutil.copy(hf_download_path, download_file_path)
+                download_hf_file_with_resume(
+                    repo_id=self.repo_id,
+                    filename=self.file_name,
+                    subfolder=self.subfolder,
+                    local_path=download_file_path,
+                    force_download=force_download,
+                )
                 logger.debug(f'[abus_hf_file.py] download - download complete : {download_file_path}')    
             
                 _, extension = os.path.splitext(download_file_path)
@@ -90,17 +92,19 @@ class HF_File():
         
     def download_private(self, token, force_download: bool = False):
         try:
-            # logger.warning(f'[abus_hf_file.py] download_private - start download : {self.file_name}')            
-            cache_dir = os.path.join(Path.home(), ".cache", "huggingface", "hub")
-            hf_download_path = hf_hub_download(repo_id=self.repo_id, filename=self.file_name, subfolder=self.subfolder, cache_dir=cache_dir, token=token, force_download=force_download)
-            
             download_folder = os.path.join(path_model_folder(), self.file_type, self.subfolder)
             if not os.path.exists(download_folder):
                 os.makedirs(download_folder, exist_ok=True)
 
             download_file_path = os.path.join(download_folder, self.file_name)
-            shutil.copy(hf_download_path, download_file_path)
-            # logger.warning(f'[abus_hf_file.py] download_private - download complete : {download_file_path}')    
+            download_hf_file_with_resume(
+                repo_id=self.repo_id,
+                filename=self.file_name,
+                subfolder=self.subfolder,
+                local_path=download_file_path,
+                token=token,
+                force_download=force_download,
+            )
             
             _, extension = os.path.splitext(download_file_path)
             if extension.lower() == '.zip':

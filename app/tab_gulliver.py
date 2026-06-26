@@ -30,6 +30,8 @@ def gulliver_tab(user_config: UserConfig):
     f5_reference_voice = GradioCelebVoice(user_config)
     cosy_reference_voice = GradioCelebVoice(user_config)
     dots_reference_voice = GradioCelebVoice(user_config)
+    voxcpm_reference_voice = GradioCelebVoice(user_config)
+    index_reference_voice = GradioCelebVoice(user_config)
     kokoro_voice = GradioKokoroVoice(user_config)    
     
     system = platform.system()
@@ -183,6 +185,37 @@ def gulliver_tab(user_config: UserConfig):
                 with gr.Row():
                     dots_default_button = gr.ClearButton(value=i18n("Load Defaults"))
                     dots_dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")
+
+            with gr.Tab("VoxCPM"):
+                with gr.Group():
+                    voxcpm_language_radio = gr.Radio(choices=voxcpm_reference_voice.gradio_languages(), label=i18n("Language"), value="English")
+                    voxcpm_voice_dropdown = gr.Dropdown(label=i18n("Voice"), choices=voxcpm_reference_voice.gradio_voices(), value=None)
+                    voxcpm_reference_audio = gr.Audio(label="Reference Audio", sources=['upload', 'microphone'], type="filepath", interactive=True)
+                    voxcpm_reference_transcript = gr.Textbox(label=i18n("Transcript"), interactive=True, max_lines=12, lines=6, placeholder=i18n("Optional"))
+                    voxcpm_reference_image = gr.Image(label="Photo", type="filepath", interactive=False, show_download_button=False)
+                    voxcpm_mode_choice = gr.Dropdown(choices=gulliver.gradio_voxcpm_modes(), label="Mode", value=user_config.get("voxcpm_mode", "Voice Clone"))
+                    voxcpm_voice_description = gr.Textbox(label="Voice Description", interactive=True, max_lines=6, lines=4, placeholder=i18n("Optional"))
+                    voxcpm_cfg_value = gr.Slider(0.5, 4.0, value=user_config.get("voxcpm_cfg_value", 2.0), step=0.1, label="CFG Value", info="0.5 ~ 4.0")
+                    voxcpm_inference_timesteps = gr.Slider(4, 20, value=user_config.get("voxcpm_inference_timesteps", 10), step=1, label="Inference Steps", info="4 ~ 20")
+                    voxcpm_normalize_text = gr.Checkbox(label="Normalize Text", value=user_config.get("voxcpm_normalize_text", False))
+                    voxcpm_denoise_reference = gr.Checkbox(label="Denoise Reference", value=user_config.get("voxcpm_denoise_reference", False))
+                with gr.Row():
+                    voxcpm_default_button = gr.ClearButton(value=i18n("Load Defaults"))
+                    voxcpm_dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")
+
+            with gr.Tab("IndexTTS"):
+                with gr.Group():
+                    index_language_radio = gr.Radio(choices=index_reference_voice.gradio_languages(), label=i18n("Language"), value="English")
+                    index_voice_dropdown = gr.Dropdown(label=i18n("Voice"), choices=index_reference_voice.gradio_voices(), value=None)
+                    index_reference_audio = gr.Audio(label="Reference Audio", sources=['upload', 'microphone'], type="filepath", interactive=True)
+                    index_reference_transcript = gr.Textbox(label=i18n("Transcript"), interactive=True, max_lines=12, lines=6, placeholder=i18n("Optional"))
+                    index_reference_image = gr.Image(label="Photo", type="filepath", interactive=False, show_download_button=False)
+                    index_emo_audio_prompt = gr.Audio(label="Emotion Reference Audio", sources=['upload', 'microphone'], type="filepath", interactive=True)
+                    index_enable_emo_audio = gr.Checkbox(label="Enable Emotion Audio", value=user_config.get("index_tts_enable_emo_audio", False))
+                    index_emo_alpha = gr.Slider(0.0, 1.0, value=user_config.get("index_tts_emo_alpha", 1.0), step=0.05, label="Emotion Strength", info="0.0 ~ 1.0")
+                with gr.Row():
+                    index_default_button = gr.ClearButton(value=i18n("Load Defaults"))
+                    index_dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")
                 
     # Media Upload                        
     submit_button.click(gulliver.gradio_upload_source,
@@ -318,6 +351,55 @@ def gulliver_tab(user_config: UserConfig):
             dots_guidance_scale,
             dots_seed,
             dots_normalize_text,
+            audio_format_radio,
+        ],
+        outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress],
+    )
+
+    # VoxCPM
+    voxcpm_language_radio.change(voxcpm_reference_voice.gradio_change_language, inputs=[voxcpm_language_radio], outputs=[voxcpm_voice_dropdown])
+    voxcpm_voice_dropdown.change(voxcpm_reference_voice.gradio_change_voice, inputs=[voxcpm_voice_dropdown], outputs=[voxcpm_reference_audio, voxcpm_reference_transcript, voxcpm_reference_image])
+    voxcpm_reference_audio.clear(voxcpm_reference_voice.gradio_clear_voice, inputs=None, outputs=[voxcpm_reference_transcript, voxcpm_reference_image])
+    voxcpm_default_button.click(
+        gulliver.gradio_voxcpm_default,
+        outputs=[voxcpm_mode_choice, voxcpm_voice_description, voxcpm_cfg_value, voxcpm_inference_timesteps, voxcpm_normalize_text, voxcpm_denoise_reference],
+    )
+    voxcpm_dubbing_button.click(
+        gulliver.gradio_voxcpm_dubbing,
+        inputs=[
+            translation_textbox,
+            voxcpm_voice_dropdown,
+            voxcpm_reference_audio,
+            voxcpm_reference_transcript,
+            voxcpm_mode_choice,
+            voxcpm_voice_description,
+            voxcpm_cfg_value,
+            voxcpm_inference_timesteps,
+            voxcpm_normalize_text,
+            voxcpm_denoise_reference,
+            audio_format_radio,
+        ],
+        outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress],
+    )
+
+    # IndexTTS
+    index_language_radio.change(index_reference_voice.gradio_change_language, inputs=[index_language_radio], outputs=[index_voice_dropdown])
+    index_voice_dropdown.change(index_reference_voice.gradio_change_voice, inputs=[index_voice_dropdown], outputs=[index_reference_audio, index_reference_transcript, index_reference_image])
+    index_reference_audio.clear(index_reference_voice.gradio_clear_voice, inputs=None, outputs=[index_reference_transcript, index_reference_image])
+    index_default_button.click(
+        gulliver.gradio_index_default,
+        outputs=[index_enable_emo_audio, index_emo_alpha],
+    )
+    index_dubbing_button.click(
+        gulliver.gradio_index_dubbing,
+        inputs=[
+            translation_textbox,
+            index_voice_dropdown,
+            index_reference_audio,
+            index_reference_transcript,
+            index_emo_audio_prompt,
+            index_enable_emo_audio,
+            index_emo_alpha,
             audio_format_radio,
         ],
         outputs=[dubbing_video, dubbing_audio, dubbing_files, dubbing_progress],

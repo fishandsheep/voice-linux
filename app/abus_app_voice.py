@@ -43,6 +43,8 @@ from app.tab_tts_f5_multi import tts_f5_multi_tab
 from app.tab_tts_cosyvoice import tts_cosyvoice_tab
 from app.tab_tts_kokoro import tts_kokoro_tab
 from app.tab_tts_dots import tts_dots_tab
+from app.tab_tts_voxcpm import tts_voxcpm_tab
+from app.tab_tts_index import tts_index_tab
 from app.tab_translate import translate_tab
 
 
@@ -107,6 +109,10 @@ def create_ui(user_config: UserConfig):
                     tts_kokoro_tab(user_config)
                 with gr.Tab("dots.tts"):
                     tts_dots_tab(user_config)
+                with gr.Tab("VoxCPM"):
+                    tts_voxcpm_tab(user_config)
+                with gr.Tab("IndexTTS"):
+                    tts_index_tab(user_config)
 
             create_app_footer()
 
