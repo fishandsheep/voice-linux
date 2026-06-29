@@ -14,7 +14,7 @@ class WhisperParameters:
     best_of: int = 5                # 5 - default
     patience: float = 2.0           # 1 - default
     condition_on_previous_text: bool = False     # True - default
-    temperature = 0 # https://github.com/SYSTRAN/faster-whisper/issues/71
+    temperature = 0
     word_timestamps: bool = True                        # False - default    
     hallucination_silence_threshold = 0.5               # None - default
     repetition_penalty = 1.1                            # 1 - default

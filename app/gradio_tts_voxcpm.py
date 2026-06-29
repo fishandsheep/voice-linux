@@ -63,7 +63,7 @@ class GradioVoxCPM:
             self.user_config.set("voxcpm_inference_timesteps", int(inference_timesteps))
             self.user_config.set("voxcpm_normalize_text", bool(normalize_text))
             self.user_config.set("voxcpm_denoise_reference", bool(denoise_reference))
-            self.user_config.set("audio_format", audio_format)
+            self.user_config.set("tts_audio_format", audio_format)
 
             dubbing_file = os.path.join(path_dubbing_folder(), path_new_filename(f".{audio_format}"))
             self.tts.infer_single(

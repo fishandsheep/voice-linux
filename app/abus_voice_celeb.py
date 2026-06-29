@@ -62,7 +62,7 @@ class CelebVoiceManager():
             
         
     def _download_hf(self):
-        celebrities30s = HF_File('cosyvoice', 'ABUS-AI/CosyVoice', '', 'celebrities30s.zip', 18467946, 0)
+        celebrities30s = HF_File('reference', 'ABUS-AI/CosyVoice', '', 'celebrities30s.zip', 18467946, 0)
         self.download_success, _ = celebrities30s.download(force_download=False)
 
         

@@ -16,38 +16,16 @@ class UserConfig:
     def __init__(self, user_config_path):
         self.user_config_path = user_config_path
         self.default_user_config = {
-            "asr_engine": "whisper-timestamped",
             "gradio_language": "English",
-            "whisper_model": "large",
-            "faster_whisper_model": "large",
-            "whisper_timestamped_model": "large",
-            "whisperX_model": "large",            
+            "whisper_timestamped_model": "large-v3-turbo",
             "whisper_language": "korean",
-            "word_timestamps": True,
-            "denoise": False,
-            "burn_subtitles": False,
             "video_quality": "best",
-            "audio_format": "flac",
+            "upload_audio_format": "wav",
+            "tts_audio_format": "mp3",
             "translate_source_language": "English",
             "translate_target_language": "korean",
             "denoise_level" : 0,
-            "whisper_compute_type" : 'default',
-            "whisper_highlight_words" : False,
             "last_folder" : ".",     
-            "ms_language": "English",
-            "ms_voice": "UNITED STATES-Ana-Female",
-            "azure_tts_pitch": 0,
-            "azure_tts_rate": 0,
-            "azure_tts_volume": 0,
-            "edge_tts_pitch": 0,
-            "edge_tts_rate": 0,
-            "edge_tts_volume": 0,            
-            "dots_model": "rednote-hilab/dots.tts-mf",
-            "dots_language": "Auto Detect",
-            "dots_num_steps": 4,
-            "dots_guidance_scale": 1.2,
-            "dots_seed": 42,
-            "dots_normalize_text": False,
             "voxcpm_mode": "Voice Clone",
             "voxcpm_cfg_value": 2.0,
             "voxcpm_inference_timesteps": 10,
@@ -55,11 +33,6 @@ class UserConfig:
             "voxcpm_denoise_reference": False,
             "index_tts_emo_alpha": 1.0,
             "index_tts_enable_emo_audio": False,
-            "f5_single_language": "English",
-            "f5_multi_language1": "English",
-            "f5_multi_language2": "English",            
-            "cosy_voice_language": "English",
-            "kokoro_language": "American English",
         }
         self.user_config = self.load_user_config()
 
@@ -77,6 +50,26 @@ class UserConfig:
             json5.dump(self.user_config, file, indent=4)
 
     def get(self, key, default=None):
+        if key == "upload_audio_format":
+            legacy = self.user_config.get("audio_format")
+            value = self.user_config.get(key, legacy if legacy is not None else default)
+            if value not in {"wav", "mp3"}:
+                value = self.default_user_config["upload_audio_format"]
+            return value
+
+        if key == "tts_audio_format":
+            legacy = self.user_config.get("audio_format")
+            value = self.user_config.get(key, legacy if legacy is not None else default)
+            if value not in {"wav", "flac", "mp3"}:
+                value = self.default_user_config["tts_audio_format"]
+            return value
+
+        if key == "whisper_timestamped_model":
+            value = self.user_config.get(key, default)
+            if value not in {"large", "large-v3-turbo", "turbo"}:
+                return self.default_user_config["whisper_timestamped_model"]
+            return value
+
         value = self.user_config.get(key, default)
         if value != None:
             return value

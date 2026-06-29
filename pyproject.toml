@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10,<3.11"
 dependencies = [
     "azure-ai-translation-text==1.0.0b1",
-    "azure-cognitiveservices-speech",
     "browser_cookie3",
     "cached-path==1.8.10",
     "conformer==0.3.2",
@@ -18,12 +17,10 @@ dependencies = [
     "deep-translator",
     "demucs==4.0.1",
     "diffusers==0.29.0",
-    "edge-tts",
     "einops",
     "evaluate",
     "f5-tts==1.0.8",
     "fastapi-cli==0.0.4",
-    "faster-whisper==1.1.0",
     "ffmpeg-python==0.2.0",
     "gdown==5.1.0",
     "gradio==5.14.0",
@@ -38,15 +35,11 @@ dependencies = [
     "jiwer",
     "json5",
     "kaldialign",
-    "kokoro",
     "librosa==0.11.0",
     "lightning==2.2.4",
     "lingua-language-detector",
     "markdown",
     "matplotlib",
-    "misaki[en]",
-    "misaki[ja]",
-    "misaki[zh]",
     "modelscope==1.15.0",
     "more_itertools",
     "ntplib",
@@ -54,8 +47,6 @@ dependencies = [
     "onnxruntime-gpu==1.20.1",
     "openai-whisper==20240930",
     "pandas>=2.2,<3",
-    "phonemizer",
-    "piper_phonemize",
     "py-cpuinfo==9.0.0",
     "pydantic==2.12.5",
     "pydub==0.25.1",
@@ -72,7 +63,6 @@ dependencies = [
     "spacy[cuda12x]==3.8.8",
     "structlog",
     "tensorboard==2.14.0",
-    "dots-tts",
     "torch==2.8.0+cu128",
     "torchaudio==2.8.0+cu128",
     "torchvision==0.23.0+cu128",
@@ -83,7 +73,6 @@ dependencies = [
     "wget",
     "WeTextProcessing==1.0.3",
     "whisper-timestamped==1.15.8",
-    "whisperx==3.3.1",
     "transformers==4.57.4",
     "yt-dlp==2025.11.12",
 ]
@@ -100,7 +89,7 @@ dev = [
 py-modules = ["voice_simple_launcher"]
 
 [tool.setuptools.packages.find]
-include = ["app*", "cosyvoice*", "src*"]
+include = ["app*", "src*"]
 
 [tool.uv]
 package = true
@@ -115,7 +104,6 @@ environments = [
 torch = [{ index = "pytorch-cu128" }]
 torchaudio = [{ index = "pytorch-cu128" }]
 torchvision = [{ index = "pytorch-cu128" }]
-dots-tts = { git = "https://github.com/rednote-hilab/dots.tts.git" }
 
 [tool.uv.extra-build-dependencies]
 openai-whisper = ["setuptools<81"]

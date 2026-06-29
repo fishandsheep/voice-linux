@@ -10,6 +10,7 @@ import gradio as gr
 
 from app.gradio_tts_index import *
 from app.gradio_voice_celeb import *
+from app.tts_help import render_helped_control
 from src.config import UserConfig
 from src.i18n.i18n import I18nAuto
 
@@ -54,25 +55,41 @@ def tts_index_tab(user_config: UserConfig):
         with gr.Column(scale=4):
             with gr.Group():
                 gr.HTML("<center><h4>IndexTTS</h4></center>")
-                emo_audio_prompt = gr.Audio(
-                    label="Emotion Reference Audio",
-                    sources=["upload", "microphone"],
-                    type="filepath",
-                    interactive=True,
+                emo_audio_prompt = render_helped_control(
+                    "index_tts",
+                    "Emotion Reference Audio",
+                    lambda: gr.Audio(
+                        label="Emotion Reference Audio",
+                        sources=["upload", "microphone"],
+                        type="filepath",
+                        interactive=True,
+                    ),
                 )
-                enable_emo_audio = gr.Checkbox(
-                    label="Enable Emotion Audio",
-                    value=user_config.get("index_tts_enable_emo_audio", False),
+                enable_emo_audio = render_helped_control(
+                    "index_tts",
+                    "Enable Emotion Audio",
+                    lambda: gr.Checkbox(
+                        label="Enable Emotion Audio",
+                        value=user_config.get("index_tts_enable_emo_audio", False),
+                    ),
                 )
-                emo_alpha = gr.Slider(
-                    0.0,
-                    1.0,
-                    value=user_config.get("index_tts_emo_alpha", 1.0),
-                    step=0.05,
-                    label="Emotion Strength",
-                    info="0.0 ~ 1.0",
+                emo_alpha = render_helped_control(
+                    "index_tts",
+                    "Emotion Strength",
+                    lambda: gr.Slider(
+                        0.0,
+                        1.0,
+                        value=user_config.get("index_tts_emo_alpha", 1.0),
+                        step=0.05,
+                        label="Emotion Strength",
+                        info="0.0 ~ 1.0",
+                    ),
                 )
-                audio_format_radio = gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("audio_format", "mp3"))
+                audio_format_radio = render_helped_control(
+                    "index_tts",
+                    "Audio Format",
+                    lambda: gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("tts_audio_format", "mp3")),
+                )
             with gr.Row():
                 index_default_button = gr.ClearButton(value=i18n("Load Defaults"))
                 dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")

@@ -26,7 +26,7 @@ import soundfile as sf
 
 
 from cached_path import cached_path
-from f5_tts.model import DiT, UNetT
+from f5_tts.model import DiT
 from f5_tts.infer.utils_infer import (
     load_vocoder,
     load_model,
@@ -87,9 +87,7 @@ class F5TTS:
 
 
     def available_models(self):
-        models = self.manager.list_available_models()
-        models.append("SWivid/E2-TTS")    
-        return models        
+        return self.manager.list_available_models()
     
 
     def load_f5tts(self, model_name: str = "SWivid/F5-TTS_v1"):
@@ -102,19 +100,8 @@ class F5TTS:
             
         return load_model(DiT, model_cfg, ckpt_path, vocab_file=vocab_path)
 
-
-    def load_e2tts(self):
-        ckpt_path = str(cached_path("hf://SWivid/E2-TTS/E2TTS_Base/model_1200000.safetensors"))
-        model_cfg = dict(dim=1024, depth=24, heads=16, ff_mult=4, text_mask_padding=False, pe_attn_head=1)
-        return load_model(UNetT, model_cfg, ckpt_path)
-    
-
-    
     def select_model(self, model_choice):
-        if model_choice == "SWivid/E2-TTS":
-            self.ema_model = self.load_e2tts()
-        else:
-            self.ema_model = self.load_f5tts(model_choice)
+        self.ema_model = self.load_f5tts(model_choice)
 
     def ensure_vocoder_loaded(self):
         if self.vocoder is not None:

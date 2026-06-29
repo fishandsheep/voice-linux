@@ -22,7 +22,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("fairseq").setLevel(logging.WARNING)
 logging.getLogger("azure.core").setLevel(logging.WARNING)
-logging.getLogger("faster_whisper").setLevel(logging.WARNING)
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 
@@ -37,12 +36,7 @@ logger = structlog.get_logger()
 from app.abus_genuine import *
 from app.tab_gulliver import gulliver_tab
 from app.tab_subtitle import subtitle_tab
-from app.tab_tts_edge import tts_edge_tab
 from app.tab_tts_f5_single import tts_f5_single_tab
-from app.tab_tts_f5_multi import tts_f5_multi_tab
-from app.tab_tts_cosyvoice import tts_cosyvoice_tab
-from app.tab_tts_kokoro import tts_kokoro_tab
-from app.tab_tts_dots import tts_dots_tab
 from app.tab_tts_voxcpm import tts_voxcpm_tab
 from app.tab_tts_index import tts_index_tab
 from app.tab_translate import translate_tab
@@ -96,19 +90,8 @@ def create_ui(user_config: UserConfig):
                 translate_tab(user_config)
 
             with gr.Tab(i18n("Speech Generation")):
-                tab_name = i18n('Azure-TTS') if azure_text_api_working() else i18n('Edge-TTS')
-                with gr.Tab(tab_name):
-                    tts_edge_tab(user_config)
                 with gr.Tab(i18n("F5-TTS (Single)")):
                     tts_f5_single_tab(user_config)
-                with gr.Tab(i18n("F5-TTS (Multi)")):
-                    tts_f5_multi_tab(user_config)
-                with gr.Tab(i18n("CosyVoice")):
-                    tts_cosyvoice_tab(user_config)
-                with gr.Tab(i18n("kokoro")):
-                    tts_kokoro_tab(user_config)
-                with gr.Tab("dots.tts"):
-                    tts_dots_tab(user_config)
                 with gr.Tab("VoxCPM"):
                     tts_voxcpm_tab(user_config)
                 with gr.Tab("IndexTTS"):

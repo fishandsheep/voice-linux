@@ -23,6 +23,140 @@ with open(Path(__file__).resolve().parent / 'js/show_controls.js', 'r') as f:
 with open(Path(__file__).resolve().parent / 'js/update_big_picture.js', 'r') as f:
     update_big_picture_js = f.read()    
 
+css += """
+
+.tts-help-row {
+  align-items: start;
+  gap: 8px;
+}
+
+.tts-help-button button {
+  min-width: 32px !important;
+  width: 32px;
+  height: 32px;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  font-size: 15px !important;
+  font-weight: 700;
+  line-height: 1;
+  color: #f4efe7 !important;
+  background: #2f2f35 !important;
+  border: 1px solid #4f5058 !important;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
+}
+
+.tts-help-button button:hover {
+  background: #3a3b43 !important;
+  border-color: #f29a37 !important;
+}
+
+.tts-help-overlay {
+  position: fixed !important;
+  inset: 0;
+  z-index: 1190;
+}
+
+.tts-help-overlay-hit {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  background: rgb(0 0 0 / 42%);
+}
+
+.tts-help-card {
+  position: fixed !important;
+  top: 88px;
+  right: 28px;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  margin: 0 !important;
+  padding: 14px 16px !important;
+  border: 1px solid #4a4b53 !important;
+  border-radius: 14px !important;
+  background: rgb(24 24 27 / 96%) !important;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 22%);
+}
+
+.tts-help-card,
+.tts-help-card * {
+  color: #f3eee6 !important;
+}
+
+.tts-help-card .tts-help-inner {
+  display: block;
+  position: relative;
+  padding-right: 28px;
+}
+
+.tts-help-close {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+  color: #f4efe7;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tts-help-close:hover {
+  color: #f29a37;
+  background: rgb(255 255 255 / 6%);
+}
+
+.tts-help-card p {
+  margin: 0 0 10px !important;
+  line-height: 1.5 !important;
+  font-size: 13px !important;
+}
+
+.tts-help-card p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.tts-help-card strong {
+  color: #fffaf1 !important;
+}
+
+.tts-help-card a {
+  color: #f29a37 !important;
+  text-decoration: none !important;
+}
+
+.tts-help-card a:hover {
+  text-decoration: underline !important;
+}
+
+.tts-help-card code {
+  color: #ffd8aa !important;
+  background: rgb(255 255 255 / 8%) !important;
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+
+@media screen and (width <= 768px) {
+  .tts-help-card {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+    max-height: min(60vh, 520px);
+  }
+}
+
+"""
+
 refresh_symbol = '🔄'
 delete_symbol = '🗑️'
 save_symbol = '💾'

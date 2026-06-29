@@ -1,35 +1,47 @@
-
-import json
-import asyncio
+import os
 import threading
 import time
+
+import gradio as gr
 import pysubs2
 
 from src.config import UserConfig
-from app.abus_downloader import *
-from app.abus_path import *
-from app.abus_ffmpeg import *
-from app.abus_demucs import *
-from app.abus_genuine import *
-from app.abus_files import *
+
+from app.abus_asr_parameters import WhisperParameters
+from app.abus_asr_whisper_timestamped import WhisperTimestampedInference
+from app.abus_demucs import demucs_split_file
+from app.abus_downloader import YoutubeDownloader
+from app.abus_ffmpeg import (
+    ffmpeg_browser_compatible,
+    ffmpeg_codec_type,
+    ffmpeg_extract_audio,
+    ffmpeg_mix_audio,
+    ffmpeg_replace_audio,
+)
+from app.abus_files import FileManager
+from app.abus_genuine import azure_text_api_working
+from app.abus_path import (
+    cmd_copy_file_to,
+    cmd_open_explorer,
+    path_add_postfix,
+    path_change_ext,
+    path_gradio_folder,
+    path_new_filename,
+    path_translate_folder,
+    path_workspace_folder,
+    path_workspace_subfolder,
+    path_youtube_folder,
+)
 from app.abus_text import AbusText
 
-from app.abus_asr_parameters import *
-
-from app.abus_voice_ms import *
-from app.abus_voice_celeb import *
-from app.abus_voice_kokoro import *
-
-
-import src.ui as ui
-from src.i18n.i18n import I18nAuto
-i18n = I18nAuto()
-
 import structlog
+
 logger = structlog.get_logger()
 
 
 class GradioGulliver:
+    ALLOWED_MODELS = ["large", "large-v3-turbo", "turbo"]
+
     class OutputProgressBridge:
         def __init__(self, start: float = 0.0, end: float = 1.0, desc: str = "Working...", parent=None):
             self.start = float(start)
@@ -56,18 +68,6 @@ class GradioGulliver:
                 value = 0.0 if not total else current / total
             self.set(float(value), desc)
 
-        def tqdm(self, iterable, desc: str = "Working..."):
-            items = list(iterable)
-            total = len(items)
-            if total == 0:
-                self.set(self.end, desc)
-                return items
-
-            for index, item in enumerate(items, start=1):
-                self((index - 1, total), desc=desc)
-                yield item
-            self((total, total), desc=desc)
-
         def snapshot(self):
             with self.lock:
                 return self.fraction, self.desc
@@ -77,40 +77,14 @@ class GradioGulliver:
 
     def __init__(self, user_config: UserConfig):
         self.user_config = user_config
-        
         self.fm = FileManager()
-
         self.downloader = YoutubeDownloader()
-        self.ms_voice_manager = MSVoiceManager(self.user_config.get('ms_language', "English"))
-        self._edge_tts = None
-
-        self._f5_tts = None
-        self._cosy_tts = None
-        self._kokoro_tts = None
-        self._dots_tts = None
-        self._voxcpm_tts = None
-        self._index_tts = None
-        self.kokoro_vm = KokoroVoiceManager()
+        self.whisper_inf = WhisperTimestampedInference()
 
         self._translator = None
-
-        asr_engine = self._normalize_asr_engine(self.user_config.get("asr_engine", 'whisper-timestamped'))
-        self.whisper_inf = self.switch_case(asr_engine)   
-
-        
-        # self.mdxnet_models_dir = os.path.join(os.getcwd(), 'model', 'mdxnet-model')
-        # with open(os.path.join(self.mdxnet_models_dir, 'model_data.json')) as infile:
-        #     self.mdx_model_params = json.load(infile)
-
-    @staticmethod
-    def _normalize_asr_engine(case: str) -> str:
-        if case in {"whisperX", "faster-whisper"}:
-            return "whisper-timestamped"
-        return case
-
-    @staticmethod
-    def get_dubbing_asr_note() -> str:
-        return "Dubbing Studio only supports whisper-timestamped and whisper."
+        self._f5_tts = None
+        self._voxcpm_tts = None
+        self._index_tts = None
 
     @property
     def translator(self):
@@ -118,17 +92,8 @@ class GradioGulliver:
             from app.abus_translate_azure import AzureTranslator
             from app.abus_translate_deep import DeepTranslator
 
-            self._translator = AzureTranslator() if azure_text_api_working() == True else DeepTranslator()
+            self._translator = AzureTranslator() if azure_text_api_working() else DeepTranslator()
         return self._translator
-
-    @property
-    def edge_tts(self):
-        if self._edge_tts is None:
-            from app.abus_tts_azure import AzureTTS
-            from app.abus_tts_edge import EdgeTTS
-
-            self._edge_tts = AzureTTS() if azure_text_api_working() else EdgeTTS()
-        return self._edge_tts
 
     @property
     def f5_tts(self):
@@ -137,30 +102,6 @@ class GradioGulliver:
 
             self._f5_tts = F5TTS()
         return self._f5_tts
-
-    @property
-    def cosy_tts(self):
-        if self._cosy_tts is None:
-            from app.abus_tts_cosyvoice import CosyVoiceInference
-
-            self._cosy_tts = CosyVoiceInference()
-        return self._cosy_tts
-
-    @property
-    def kokoro_tts(self):
-        if self._kokoro_tts is None:
-            from app.abus_tts_kokoro import KokoroTTS
-
-            self._kokoro_tts = KokoroTTS()
-        return self._kokoro_tts
-
-    @property
-    def dots_tts(self):
-        if self._dots_tts is None:
-            from app.abus_tts_dots import DotsTTS
-
-            self._dots_tts = DotsTTS()
-        return self._dots_tts
 
     @property
     def voxcpm_tts(self):
@@ -178,110 +119,38 @@ class GradioGulliver:
             self._index_tts = IndexTTSTTS()
         return self._index_tts
 
-    @staticmethod
-    def _base_language_name(language_name: str) -> str:
-        if not language_name:
-            return ""
-        return language_name.split(" (", 1)[0].strip()
-
-    def _match_voice_to_target_language(self, voice_name: str) -> str:
-        ms_voice = self.ms_voice_manager.get_voice(voice_name)
-        if ms_voice is None:
-            return voice_name
-
-        target_language = self._base_language_name(self.user_config.get("translate_target_language", "English"))
-        voice_language = self._base_language_name(ms_voice.getLanguageName())
-        if not target_language or voice_language.lower() == target_language.lower():
-            return voice_name
-
-        candidate_voices = self.ms_voice_manager.get_voices(target_language)
-        if not candidate_voices:
-            return voice_name
-
-        fallback_voice = candidate_voices[0].getDisplayName()
-        logger.info(
-            "[gradio_gulliver.py] auto-switch voice: %s -> %s for target language %s",
-            voice_name,
-            fallback_voice,
-            target_language,
-        )
-        return fallback_voice
-
-    def switch_case(self, case):
-        case = self._normalize_asr_engine(case)
-        if case == 'whisper':
-            from app.abus_asr_whisper import WhisperInference
-
-            return WhisperInference()
-        if case == 'whisper-timestamped':
-            from app.abus_asr_whisper_timestamped import WhisperTimestampedInference
-
-            return WhisperTimestampedInference()
-
-        from app.abus_asr_faster_whisper import FasterWhisperInference
-
-        return FasterWhisperInference()
-            
-            
     def gradio_workspace_folder(self):
         cmd_open_explorer(path_workspace_folder())
-    
+
     def gradio_temp_folder(self):
         cmd_open_explorer(path_gradio_folder())
-    
-    
-    def get_asr_engines(self):
-        return ['whisper-timestamped', 'whisper']
-    
-    def update_whisper_models(self, asr_engine):
-        asr_engine = self._normalize_asr_engine(asr_engine)
-        whisper_inf = self.switch_case(asr_engine)       
-        model_list = whisper_inf.available_models()
-        if len(model_list) > 0:
-            model_name = self.user_config.get(f'{asr_engine.replace("-", "_")}_model', 'large')
-            return gr.update(choices=model_list, value=model_name)
-        
-        return gr.update(choices=[], value=None)
 
-                    
     def get_whisper_models(self):
-        return self.whisper_inf.available_models()
-        
+        return self.ALLOWED_MODELS.copy()
+
     def get_whisper_languages(self):
         return self.whisper_inf.available_langs()
 
-    def get_whisper_compute_types(self):
-        from app.abus_asr_faster_whisper import FasterWhisperInference
-
-        return FasterWhisperInference.available_compute_types()
-            
-    # return Video, Audio, File    
-    def gradio_upload_source(self, 
-                      file_obj, mic_file, youtube_url: str, video_quality: str, audio_format: str):
-        
+    def gradio_upload_source(self, file_obj, mic_file, youtube_url: str, video_quality: str, audio_format: str):
         self.user_config.set("video_quality", video_quality)
-        self.user_config.set("audio_format", audio_format)
+        self.user_config.set("upload_audio_format", audio_format)
 
         try:
-            logger.debug(f'upload_source: file_obj={file_obj}, mic_file={mic_file}, youtube_url={youtube_url}')          
-            self.fm = FileManager()           
-            if self._upload(file_obj, mic_file, youtube_url, video_quality, audio_format) == False:
+            self.fm = FileManager()
+            if not self._upload(file_obj, mic_file, youtube_url, video_quality, audio_format):
                 return None, None, None
-                            
-            source_audio = self.fm.get_split("Source.audio")           
-            if(self.has_video and ffmpeg_browser_compatible(self.source_file)):
-                return self.source_file, source_audio, self.fm.get_all_files()
-            else:
-                return None, source_audio, self.fm.get_all_files()
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] gradio_upload_source - Error transcribing file: {e}")
-            gr.Warning(f'{e}')
-            return None, None, None    
-        
 
-    def _upload(self,
-                file_obj, mic_file, youtube_url: str, video_quality: str, audio_format: str):
-        if (file_obj is not None):
+            source_audio = self.fm.get_split("Source.audio")
+            if self.has_video and ffmpeg_browser_compatible(self.source_file):
+                return self.source_file, source_audio, self.fm.get_all_files()
+            return None, source_audio, self.fm.get_all_files()
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] gradio_upload_source - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None, None
+
+    def _upload(self, file_obj, mic_file, youtube_url: str, video_quality: str, audio_format: str):
+        if file_obj is not None:
             uploaded_file = cmd_copy_file_to(file_obj.name, path_workspace_subfolder(file_obj.name))
         elif mic_file and mic_file.strip():
             uploaded_file = cmd_copy_file_to(mic_file, path_workspace_subfolder(mic_file))
@@ -290,134 +159,89 @@ class GradioGulliver:
             uploaded_file = cmd_copy_file_to(youtube_file, path_workspace_subfolder(youtube_file))
         else:
             return False
-        
+
         self.source_file = uploaded_file
-        
         self.has_audio, self.has_video = ffmpeg_codec_type(self.source_file)
-        logger.debug(f'upload_source: source_file={self.source_file}, has_audio={self.has_audio}, has_video={self.has_video}')
-        if self.has_audio == False:     # error
+        if not self.has_audio:
             return False
-        elif self.has_video == False:   # audio-only
+        if not self.has_video:
             self.fm.set_split("Source.video", None)
-            self.fm.set_split("Source.audio", self.source_file)   
-        else:
-            input_audio_file = path_change_ext(self.source_file, f'.{audio_format}')
-            ffmpeg_extract_audio(self.source_file, input_audio_file, audio_format)    
-            self.fm.set_split("Source.video", self.source_file)
-            self.fm.set_split("Source.audio", input_audio_file)
-        return True     
-    
+            self.fm.set_split("Source.audio", self.source_file)
+            return True
+
+        input_audio_file = path_change_ext(self.source_file, f".{audio_format}")
+        ffmpeg_extract_audio(self.source_file, input_audio_file, audio_format)
+        self.fm.set_split("Source.video", self.source_file)
+        self.fm.set_split("Source.audio", input_audio_file)
+        return True
 
     def gradio_whisper_default(self):
-        return ["tiny", "english", "float16", 0]
+        return ["large-v3-turbo", "english", 0]
 
-    # return Video, Audio, File    
-    def gradio_whisper(self, 
-                      asr_engine, modelName, whisper_language, compute_type, denoise_level):
-        asr_engine = self._normalize_asr_engine(asr_engine)
-        if self.user_config.get("asr_engine") in {"whisperX", "faster-whisper"}:
-            gr.Warning("Dubbing Studio 已强制切换到 whisper-timestamped。当前 faster-whisper/whisperX 在此页面容易卡死。")
-        
-        self.user_config.set("asr_engine", asr_engine)
-        self.user_config.set(f'{asr_engine.replace("-", "_")}_model', modelName)
+    def gradio_whisper(self, model_name, whisper_language, denoise_level):
+        if model_name not in self.ALLOWED_MODELS:
+            model_name = "large-v3-turbo"
+
+        self.user_config.set("whisper_timestamped_model", model_name)
         self.user_config.set("whisper_language", whisper_language)
-        self.user_config.set("whisper_compute_type", compute_type)
-        self.user_config.set("denoise_level", denoise_level)          
-        
-        try:                          
+        self.user_config.set("denoise_level", denoise_level)
+
+        try:
             source_audio = self.fm.get_split("Source.audio")
             denoise_inst_path, denoise_vocal_path = self._denoise(source_audio, denoise_level)
             input_path = denoise_vocal_path if os.path.exists(denoise_vocal_path) else source_audio
-
-            params = WhisperParameters(model_size=modelName, 
-                                       lang=whisper_language.lower(), 
-                                       compute_type=compute_type)   
-            
-            self.whisper_inf = self.switch_case(asr_engine)                            
-            subtitles = self.whisper_inf.transcribe_file(input_path, params, False, gr.Progress())  # highlight_words=False
+            params = WhisperParameters(model_size=model_name, lang=whisper_language.lower(), compute_type="default")
+            subtitles = self.whisper_inf.transcribe_file(input_path, params, False, gr.Progress())
             if not subtitles:
                 raise RuntimeError("Transcription did not produce subtitle files.")
-            self.fm.set_subtitles(subtitles, whisper_language, source_audio) 
-            srt_file = self.fm.get_subtitle('.srt')
-            srt_string = self._read_file(srt_file)
-            logger.debug(f'srt_file = {srt_file}, self.source_file = {self.source_file}')
-            
-            if(self.has_video and ffmpeg_browser_compatible(self.source_file)):
-                if srt_file:
-                    return (self.source_file, srt_file), source_audio, srt_string, self.fm.get_all_files()
-                else:
-                    return self.source_file, source_audio, srt_string, self.fm.get_all_files()
-            else:
-                return None, source_audio, srt_string, self.fm.get_all_files()
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] gradio_whisper - Error transcribing file: {e}", exc_info=True)
-            gr.Warning(f'{e}')
-            return None, None, None, None    
 
-    
-    # return inst, vocal    
+            self.fm.set_subtitles(subtitles, whisper_language, source_audio)
+            srt_file = self.fm.get_subtitle(".srt")
+            srt_string = self._read_file(srt_file)
+            if self.has_video and ffmpeg_browser_compatible(self.source_file):
+                return (self.source_file, srt_file), source_audio, srt_string, self.fm.get_all_files()
+            return None, source_audio, srt_string, self.fm.get_all_files()
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] gradio_whisper - error: %s", e, exc_info=True)
+            gr.Warning(f"{e}")
+            return None, None, None, None
+
     def _denoise(self, source_audio, denoise_level=2):
         if denoise_level == 1:
-            return self._demucs_htdemucs(source_audio)
-        elif denoise_level ==2:
-            return self._demucs_htdemucs_ft(source_audio)
-        else:
-            return "", ""
-                
-        
-            
-    def _demucs_htdemucs(self, source_audio):
+            return self._demucs_split(source_audio, "htdemucs")
+        if denoise_level == 2:
+            return self._demucs_split(source_audio, "htdemucs_ft")
+        return "", ""
+
+    def _demucs_split(self, source_audio, model_name: str):
         _, extension = os.path.splitext(os.path.basename(source_audio))
         output_dir = os.path.dirname(source_audio)
-        
-        inst_audio_file, vocal_audio_file = demucs_split_file(source_audio, output_dir, 'htdemucs', extension[1:])
+        inst_audio_file, vocal_audio_file = demucs_split_file(source_audio, output_dir, model_name, extension[1:])
         self.fm.set_split("Instrumental.audio", inst_audio_file)
         self.fm.set_split("Vocals.audio", vocal_audio_file)
-
         return inst_audio_file, vocal_audio_file
-    
-    def _demucs_htdemucs_ft(self, source_audio):
-        _, extension = os.path.splitext(os.path.basename(source_audio))
-        output_dir = os.path.dirname(source_audio)
-        
-        inst_audio_file, vocal_audio_file = demucs_split_file(source_audio, output_dir, 'htdemucs_ft', extension[1:])
-        self.fm.set_split("Instrumental.audio", inst_audio_file)
-        self.fm.set_split("Vocals.audio", vocal_audio_file)
 
-        return inst_audio_file, vocal_audio_file   
-
-
-    # Translate
     def gradio_translate_languages(self):
         return self.translator.get_languages()
-    
-    
-    def gradio_language_detection(self,
-                                  transcription_text):
-        languageName = AbusText.detect_language_name(transcription_text[:200])
-        return languageName
-                                        
-    
-    def gradio_translate(self,
-                        source_lang, transcription_text, target_lang):
+
+    def gradio_language_detection(self, transcription_text):
+        return AbusText.detect_language_name(transcription_text[:200])
+
+    def gradio_translate(self, source_lang, transcription_text, target_lang):
         if len(transcription_text) < 1:
-            logger.warning(f"[gradio_gulliver.py] gradio_translate - no actions")
             yield None, None, None, self.fm.get_all_files(), self._progress_hidden()
             return
+
         self.user_config.set("translate_source_language", source_lang)
         self.user_config.set("translate_target_language", target_lang)
 
         def worker(progress):
             progress.set(0.05, "Preparing translation...")
-
             transcription_file = None
             if self._is_subtitle_format(transcription_text):
                 subs = pysubs2.SSAFile.from_string(transcription_text)
                 transcription_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
                 subs.save(transcription_file)
-                progress.set(0.12, "Subtitle file ready. Translating...")
-            else:
-                progress.set(0.12, "Translating text...")
 
             translation_file = None
             translation_text = None
@@ -437,8 +261,6 @@ class GradioGulliver:
                     progress=progress.child(0.12, 0.85, "Translating text..."),
                 )
 
-            progress.set(0.92, "Preparing output preview...")
-
             source_video_file = self.fm.get_split("Source.video")
             source_audio_file = self.fm.get_split("Source.audio")
             output_video_path = (source_video_file, translation_file) if source_video_file and translation_file else source_video_file
@@ -448,29 +270,10 @@ class GradioGulliver:
             return output_video_path, output_audio_path, output_translation_text, self.fm.get_all_files()
 
         yield from self._run_with_output_progress(worker, output_count=4, start_desc="Preparing translation...")
-                           
 
-    def _read_file(self, filepath):    
-        try:
-            with open(filepath, 'r', encoding='utf-8') as file:
-                content = file.read()
-            return content
-        except UnicodeDecodeError:
-            return "Error: The file is not a valid text file or uses an unsupported encoding."
-        except IOError:
-            return "Error: Unable to read the file."
-        
-        
     def _translate_subtitle(self, subtitle_file, source_lang, target_lang, preprocess_for_tts: bool = True, progress=None):
         try:
             translation_file = path_add_postfix(subtitle_file, f"_{target_lang}")
-            logger.info(
-                "[gradio_gulliver.py] _translate_subtitle start: source=%s target=%s subtitle=%s preprocess_for_tts=%s",
-                source_lang,
-                target_lang,
-                subtitle_file,
-                preprocess_for_tts,
-            )
             self.translator.translate_file(
                 source_lang,
                 target_lang,
@@ -479,35 +282,241 @@ class GradioGulliver:
                 progress=progress,
                 preprocess_for_tts=preprocess_for_tts,
             )
-            
-            target_lang_code = self.translator.get_language_code(target_lang)
-            self.fm.set_translation(target_lang_code, translation_file)            
+            self.fm.set_translation(self.translator.get_language_code(target_lang), translation_file)
             return translation_file
         except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _translate_subtitle - error: {e}")
-            gr.Warning(f'{e}')
-            return None           
+            logger.error("[gradio_gulliver.py] _translate_subtitle - error: %s", e)
+            gr.Warning(f"{e}")
+            return None
 
     def _translate_text(self, text, source_lang, target_lang, progress=None):
         try:
-            translated = self.translator.translate_text(source_lang, target_lang, text, progress=progress)
-            return translated   
+            return self.translator.translate_text(source_lang, target_lang, text, progress=progress)
         except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _translate_text - error: {e}")
-            gr.Warning(f'{e}')
-            return None            
+            logger.error("[gradio_gulliver.py] _translate_text - error: %s", e)
+            gr.Warning(f"{e}")
+            return None
 
+    def gradio_f5_default(self):
+        return ["SWivid/F5-TTS_v1", 1.0, "mp3"]
 
-    # TTS
-    
-    def _is_subtitle_format(self, text):
-        return AbusText.is_subtitle_format(text)
+    def gradio_f5_available_models(self):
+        return self.f5_tts.available_models()
+
+    def gradio_voxcpm_modes(self):
+        return self.voxcpm_tts.available_modes()
+
+    def gradio_voxcpm_default(self):
+        return self.voxcpm_tts.default_values()
+
+    def gradio_index_default(self):
+        return self.index_tts.default_values()
+
+    def gradio_f5_dubbing_single(self, translation_text, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format: str):
+        if len(translation_text) < 1:
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        self.user_config.set("tts_audio_format", audio_format)
+
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = self._save_text_as_optional_subtitle(translation_text)
+            voice_label = self._safe_voice_label(celeb_name or "f5")
+            text_input = self._read_file(translation_file) if translation_file else translation_text
+            aidub_video_file, mixed_audio_file = self._f5_tts_text(
+                text_input, voice_label, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress.child(0.1, 0.75, "Generating speech...")
+            )
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, mixed_audio_file, self.fm.get_all_files()
+
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
+
+    def gradio_voxcpm_dubbing(self, translation_text, celeb_name, celeb_audio, celeb_transcript, mode, voice_description, cfg_value, inference_timesteps, normalize_text, denoise_reference, audio_format: str):
+        if len(translation_text) < 1:
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        self.user_config.set("voxcpm_mode", mode)
+        self.user_config.set("voxcpm_cfg_value", float(cfg_value))
+        self.user_config.set("voxcpm_inference_timesteps", int(inference_timesteps))
+        self.user_config.set("voxcpm_normalize_text", bool(normalize_text))
+        self.user_config.set("voxcpm_denoise_reference", bool(denoise_reference))
+        self.user_config.set("tts_audio_format", audio_format)
+
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = self._save_text_as_optional_subtitle(translation_text)
+            voice_label = self._safe_voice_label(celeb_name or "voxcpm")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._voxcpm_tts_subtitle(
+                    translation_file, voice_label, celeb_audio, celeb_transcript, mode, voice_description, cfg_value, inference_timesteps, normalize_text, denoise_reference, audio_format, progress.child(0.1, 0.75, "Generating speech...")
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._voxcpm_tts_text(
+                    translation_text, voice_label, celeb_audio, celeb_transcript, mode, voice_description, cfg_value, inference_timesteps, normalize_text, denoise_reference, audio_format, progress.child(0.1, 0.75, "Generating speech...")
+                )
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, mixed_audio_file, self.fm.get_all_files()
+
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
+
+    def gradio_index_dubbing(self, translation_text, celeb_name, celeb_audio, celeb_transcript, emo_audio_prompt, enable_emo_audio, emo_alpha, audio_format: str):
+        if len(translation_text) < 1:
+            yield None, None, self.fm.get_all_files(), self._progress_hidden()
+            return
+
+        effective_emo_enabled = self.index_tts.normalize_emotion_inputs(enable_emo_audio, emo_audio_prompt)
+        self.user_config.set("index_tts_enable_emo_audio", effective_emo_enabled)
+        self.user_config.set("index_tts_emo_alpha", float(emo_alpha))
+        self.user_config.set("tts_audio_format", audio_format)
+
+        def worker(progress):
+            progress.set(0.05, "Preparing dubbing...")
+            translation_file = self._save_text_as_optional_subtitle(translation_text)
+            voice_label = self._safe_voice_label(celeb_name or "indextts")
+            if translation_file:
+                aidub_video_file, mixed_audio_file = self._index_tts_subtitle(
+                    translation_file, voice_label, celeb_audio, celeb_transcript, emo_audio_prompt, effective_emo_enabled, emo_alpha, audio_format, progress.child(0.1, 0.75, "Generating speech...")
+                )
+            else:
+                aidub_video_file, mixed_audio_file = self._index_tts_text(
+                    translation_text, voice_label, celeb_audio, celeb_transcript, emo_audio_prompt, effective_emo_enabled, emo_alpha, audio_format, progress.child(0.1, 0.75, "Generating speech...")
+                )
+            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
+            progress.set(1.0, "Speech synthesis complete")
+            return output_video_path, mixed_audio_file, self.fm.get_all_files()
+
+        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
+
+    def _save_text_as_optional_subtitle(self, text: str):
+        if text and self._is_subtitle_format(text):
+            subs = pysubs2.SSAFile.from_string(text)
+            translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
+            subs.save(translation_file)
+            return translation_file
+        return None
+
+    def _mix_and_optionally_mux(self, aidub_audio_file: str, source_audio_file: str, voice_label: str, audio_format: str):
+        mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
+        denoise_inst_path, _ = self._denoise(source_audio_file, 1)
+        ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
+        self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
+
+        if self.has_video:
+            source_video_file = self.fm.get_split("Source.video")
+            aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
+            ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
+            self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
+            return aidub_video_file, mixed_audio_file
+        return None, mixed_audio_file
+
+    def _f5_tts_text(self, text: str, voice_label: str, prompt_audio, prompt_text, model_choice, speed_factor, audio_format: str, progress=None):
+        try:
+            source_audio_file = self.fm.get_split("Source.audio")
+            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
+            self.f5_tts.infer_single(text.strip(), aidub_audio_file, prompt_audio, prompt_text, model_choice, speed_factor, audio_format, progress=progress)
+            return self._mix_and_optionally_mux(aidub_audio_file, source_audio_file, voice_label, audio_format)
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] _f5_tts_text - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None
+
+    def _voxcpm_tts_text(self, text: str, voice_label: str, prompt_audio, prompt_text, mode, voice_description, cfg_value, inference_timesteps, normalize_text, denoise_reference, audio_format: str, progress=None):
+        try:
+            source_audio_file = self.fm.get_split("Source.audio")
+            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
+            self.voxcpm_tts.text_to_voice(
+                text,
+                aidub_audio_file,
+                mode,
+                prompt_audio,
+                prompt_text,
+                voice_description,
+                cfg_value,
+                inference_timesteps,
+                normalize_text,
+                denoise_reference,
+                audio_format,
+                progress=progress,
+            )
+            return self._mix_and_optionally_mux(aidub_audio_file, source_audio_file, voice_label, audio_format)
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] _voxcpm_tts_text - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None
+
+    def _voxcpm_tts_subtitle(self, subtitle_file, voice_label: str, prompt_audio, prompt_text, mode, voice_description, cfg_value, inference_timesteps, normalize_text, denoise_reference, audio_format: str, progress=None):
+        try:
+            source_audio_file = self.fm.get_split("Source.audio")
+            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
+            self.voxcpm_tts.srt_to_voice(
+                subtitle_file,
+                aidub_audio_file,
+                mode,
+                prompt_audio,
+                prompt_text,
+                voice_description,
+                cfg_value,
+                inference_timesteps,
+                normalize_text,
+                denoise_reference,
+                audio_format,
+                progress=progress,
+            )
+            return self._mix_and_optionally_mux(aidub_audio_file, source_audio_file, voice_label, audio_format)
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] _voxcpm_tts_subtitle - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None
+
+    def _index_tts_text(self, text: str, voice_label: str, prompt_audio, prompt_text, emo_audio_prompt, enable_emo_audio, emo_alpha, audio_format: str, progress=None):
+        try:
+            source_audio_file = self.fm.get_split("Source.audio")
+            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
+            self.index_tts.text_to_voice(
+                text,
+                aidub_audio_file,
+                prompt_audio,
+                prompt_text,
+                emo_audio_prompt,
+                enable_emo_audio,
+                emo_alpha,
+                audio_format,
+                progress=progress,
+            )
+            return self._mix_and_optionally_mux(aidub_audio_file, source_audio_file, voice_label, audio_format)
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] _index_tts_text - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None
+
+    def _index_tts_subtitle(self, subtitle_file, voice_label: str, prompt_audio, prompt_text, emo_audio_prompt, enable_emo_audio, emo_alpha, audio_format: str, progress=None):
+        try:
+            source_audio_file = self.fm.get_split("Source.audio")
+            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
+            self.index_tts.srt_to_voice(
+                subtitle_file,
+                aidub_audio_file,
+                prompt_audio,
+                prompt_text,
+                emo_audio_prompt,
+                enable_emo_audio,
+                emo_alpha,
+                audio_format,
+                progress=progress,
+            )
+            return self._mix_and_optionally_mux(aidub_audio_file, source_audio_file, voice_label, audio_format)
+        except Exception as e:
+            logger.error("[gradio_gulliver.py] _index_tts_subtitle - error: %s", e)
+            gr.Warning(f"{e}")
+            return None, None
 
     @staticmethod
     def _safe_voice_label(voice_name: str | None) -> str:
-        if not voice_name:
-            return "dots-tts"
-        return voice_name.replace("/", "-")
+        return (voice_name or "voice").replace("/", "-")
 
     @staticmethod
     def _progress_markup(percent: int, message: str) -> str:
@@ -563,932 +572,16 @@ class GradioGulliver:
         final_desc = desc if fraction < 0.999 else desc.replace("...", "").strip() or "Done"
         yield (*state["result"], self._progress_done(final_desc))
 
+    @staticmethod
+    def _is_subtitle_format(text):
+        return AbusText.is_subtitle_format(text)
 
-           
-
-    # Edge-TTS or Azure-TTS                             
-    def gradio_edge_default(self):
-        return [0, 0, 0]        
-    
-    def gradio_edge_dubbing(self, 
-                            translation_text, voice_name: str, 
-                            semitones, speed_factor, volume_factor, audio_format: str):
-                         
-        logger.debug(f"[gradio_gulliver.py] gradio_edge_dubbing - \
-                    voice_name = {voice_name}, \
-                    semitones = {semitones}, speed_factor = {speed_factor}, volume_factor = {volume_factor}, audio_format = {audio_format}")
-        
-        if len(translation_text) < 1:
-            logger.warning(f"[gradio_gulliver.py] gradio_edge_dubbing - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        self.user_config.set("edge_tts_pitch", semitones)     
-        self.user_config.set("edge_tts_rate", speed_factor)
-        self.user_config.set("edge_tts_volume", volume_factor)             
-        self.user_config.set("audio_format", audio_format)
-        voice_name = self._match_voice_to_target_language(voice_name)
-        
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-
-            aidub_video_file = None
-            mixed_audio_file = None
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._edge_tts_subtitle(
-                    translation_file, voice_name, semitones, speed_factor, volume_factor, audio_format, progress=synth_progress
-                )
-            elif translation_text:
-                aidub_video_file, mixed_audio_file = self._edge_tts_text(
-                    translation_text, voice_name, semitones, speed_factor, volume_factor, audio_format, progress=synth_progress
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            output_audio_path = mixed_audio_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, output_audio_path, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-                            
-
-    def _edge_tts_text(self, text: str, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str, progress=None):
+    @staticmethod
+    def _read_file(filepath):
         try:
-            # TTS voice
-            ms_voice = self.ms_voice_manager.get_voice(voice_name)
-            target_language = ms_voice.getLanguageName()
-                        
-            # TTS
-            source_audio_file = self.fm.get_split("Source.audio")                        
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{target_language}")        
-            
-            self.edge_tts.text_to_voice(text, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format, progress=progress)
-
-            self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
-
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{target_language}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{target_language}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                
-                self.fm.set_dubbing(f'{voice_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file, 
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _edge_tts_text - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None    
-
-    
-    
-    def _edge_tts_subtitle(self, 
-                           subtitle_file, voice_name: str, semitones, speed_factor, volume_factor, audio_format: str, progress=None):
-        logger.debug(f"[gradio_gulliver.py] _edge_tts_subtitle - subtitle_file = {subtitle_file}, voice_name = {voice_name}, \
-                     semitones = {semitones}, speed_factor = {speed_factor}, volume_factor = {volume_factor}, audio_format = {audio_format}")
-        
-        try:
-            # TTS voice
-            ms_voice = self.ms_voice_manager.get_voice(voice_name)
-            target_language = ms_voice.getLanguageName()
-                        
-            # TTS
-            source_audio_file = self.fm.get_split("Source.audio")                        
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{target_language}")        
-            
-            self.edge_tts.srt_to_voice(subtitle_file, aidub_audio_file, ms_voice.name, semitones, speed_factor, volume_factor, audio_format, progress=progress)
-
-            self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
-        
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{target_language}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{target_language}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                
-                self.fm.set_dubbing(f'{voice_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _edge_tts_subtitle - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None 
-
-
-    # F5-TTS
-
-    def gradio_f5_default(self):
-        return ["SWivid/F5-TTS_v1", 1.0]
-    
-    def gradio_f5_available_models(self):
-        return self.f5_tts.available_models()
-
-
-    def gradio_f5_dubbing_single(self, 
-                                 translation_text, 
-                                 celeb_name, celeb_audio, celeb_transcript, 
-                                 model_choice, speed_factor, audio_format: str):
-        
-        logger.debug(f"[gradio_gulliver.py] gradio_f5_dubbing_single - \
-                    celeb_name = {celeb_name}, celeb_audio = {celeb_audio}, \
-                    model_choice = {model_choice}, speed_factor = {speed_factor}, audio_format = {audio_format}")
-        
-        if len(translation_text) < 1:
-            logger.warning(f"[gradio_gulliver.py] gradio_f5_dubbing_single - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._f5_tts_single(
-                    self._read_file(translation_file), celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=synth_progress
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._f5_tts_single(
-                    translation_text, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=synth_progress
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            output_audio_path = mixed_audio_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, output_audio_path, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-                  
-        
-       
-    def _f5_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format: str, progress=None):
-        logger.debug(f"[gradio_gulliver.py] _f5_tts_single - text = {text}, \
-                    celeb_name = {celeb_name}, celeb_audio = {celeb_audio}, \
-                    model_choice = {model_choice}, speed_factor = {speed_factor}, audio_format = {audio_format}")     
-                
-        try:
-            # F5-TTS
-            source_audio_file = self.fm.get_split("Source.audio")           
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{celeb_name}")                               
-            self.f5_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format, progress=progress)
-            
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{celeb_name}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f'{celeb_name}.audio', aidub_audio_file)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{celeb_name}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f'{celeb_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _f5_tts_single - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None    
-    
-    
-    # Cosy-Voice
-    
-    def gradio_cosy_default(self):
-        return ["Zero-Shot", 1.0]    
-        
-    def gradio_cosy_dubbing(self, 
-                        translation_text, 
-                        celeb_name, celeb_audio, celeb_transcript, 
-                        mode_choice, speed_factor, audio_format: str):
-        if len(translation_text) < 1:
-            logger.warning(f"[gradio_gulliver.py] gradio_f5_dubbing_single - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._cosy_tts_single(
-                    self._read_file(translation_file), celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=synth_progress
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._cosy_tts_single(
-                    translation_text, celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=synth_progress
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            output_audio_path = mixed_audio_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, output_audio_path, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-
-   
-    
-    def _cosy_tts_single(self, text:str, celeb_name, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format: str, progress=None):
-        logger.debug(f"[gradio_gulliver.py] _cosy_tts_single - text = {text}, \
-                    celeb_name = {celeb_name}, celeb_audio = {celeb_audio}, \
-                    mode_choice = {mode_choice}, speed_factor = {speed_factor}, audio_format = {audio_format}")     
-                
-        try:
-            # F5-TTS
-            source_audio_file = self.fm.get_split("Source.audio")           
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{celeb_name}")                               
-            self.cosy_tts.infer_single(text.strip(), aidub_audio_file, celeb_audio, celeb_transcript, mode_choice, speed_factor, audio_format, progress=progress)
-            
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{celeb_name}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f'{celeb_name}.audio', aidub_audio_file)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{celeb_name}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f'{celeb_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _cosy_tts_single - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None    
-       
-       
-       
-    # kokoro    
-        
-    def gradio_kokoro_default(self):
-        return [1, "mp3"]
-    
-    def gradio_kokoro_dubbing(self, 
-                            translation_text, language_name, voice_name: str, 
-                            speed_factor, audio_format: str):
-                         
-        logger.debug(f"[gradio_gulliver.py] gradio_kokoro_dubbing - \
-                    language_name = {language_name}, voice_name = {voice_name}, \
-                    speed_factor = {speed_factor}, audio_format = {audio_format}")
-        
-        if len(translation_text) < 1:
-            logger.warning(f"[gradio_gulliver.py] gradio_kokoro_dubbing - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        # self.user_config.set("edge_tts_rate", speed_factor)  
-        self.user_config.set("audio_format", audio_format)
-        
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._kokoro_tts_subtitle(
-                    translation_file, language_name, voice_name, speed_factor, audio_format, progress=synth_progress
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._kokoro_tts_text(
-                    translation_text, language_name, voice_name, speed_factor, audio_format, progress=synth_progress
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            output_audio_path = mixed_audio_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, output_audio_path, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-                     
-        
-    def _kokoro_tts_text(self, text: str, language_name, voice_name: str, speed_factor, audio_format: str, progress=None):
-        try:
-            # TTS voice
-            kokoro_voice = self.kokoro_vm.find_voice(language_name, voice_name)
-                        
-            # TTS
-            source_audio_file = self.fm.get_split("Source.audio")                        
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_name}")        
-            
-            self.kokoro_tts.text_to_voice(text, aidub_audio_file, kokoro_voice, speed_factor, audio_format, progress=progress)
-
-            self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
-
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_name}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_name}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                
-                self.fm.set_dubbing(f'{voice_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file, 
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _kokoro_tts_text - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None    
-
-    
-    
-    def _kokoro_tts_subtitle(self, 
-                           subtitle_file, language_name, voice_name: str, speed_factor, audio_format: str, progress=None):
-        logger.debug(f"[gradio_gulliver.py] _kokoro_tts_subtitle - subtitle_file = {subtitle_file}, \
-                    voice_name = {voice_name}, language_name = {language_name}, \
-                    speed_factor = {speed_factor}, audio_format = {audio_format}")
-        
-        try:
-            # TTS voice
-            kokoro_voice = self.kokoro_vm.find_voice(language_name, voice_name)
-                        
-            # TTS
-            source_audio_file = self.fm.get_split("Source.audio")                        
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_name}")        
-            
-            self.kokoro_tts.srt_to_voice(subtitle_file, aidub_audio_file, kokoro_voice, speed_factor, audio_format, progress=progress)
-
-            self.fm.set_dubbing(f'{voice_name}.audio', aidub_audio_file)           
-        
-            # Mix
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_name}")            
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-                                
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_name}")
-                
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                
-                self.fm.set_dubbing(f'{voice_name}.video', aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            else:
-                return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _kokoro_tts_subtitle - Error : {e}")
-            gr.Warning(f'{e}')
-            return None, None 
-
-    # dots.tts
-
-    def gradio_dots_default(self):
-        return ["rednote-hilab/dots.tts-mf", "Auto Detect", 4, 1.2, 42, False]
-
-    def gradio_dots_available_models(self):
-        return self.dots_tts.available_models()
-
-    def gradio_dots_language_tags(self):
-        return self.dots_tts.available_language_tags()
-
-    def gradio_dots_recommended_steps(self, model_choice):
-        return self.dots_tts.recommended_num_steps(model_choice)
-
-    # VoxCPM
-
-    def gradio_voxcpm_default(self):
-        return self.voxcpm_tts.default_values()[:-1]
-
-    def gradio_voxcpm_modes(self):
-        return self.voxcpm_tts.available_modes()
-
-    # IndexTTS
-
-    def gradio_index_default(self):
-        return self.index_tts.default_values()[:-1]
-
-    def gradio_index_dubbing(
-        self,
-        translation_text,
-        celeb_name,
-        celeb_audio,
-        celeb_transcript,
-        emo_audio_prompt,
-        enable_emo_audio,
-        emo_alpha,
-        audio_format: str,
-    ):
-        logger.info("[gradio_gulliver.py] gradio_index_dubbing - voice=%s", celeb_name)
-
-        if len(translation_text) < 1:
-            logger.warning("[gradio_gulliver.py] gradio_index_dubbing - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        effective_emo_enabled = self.index_tts.normalize_emotion_inputs(enable_emo_audio, emo_audio_prompt)
-        self.user_config.set("index_tts_enable_emo_audio", effective_emo_enabled)
-        self.user_config.set("index_tts_emo_alpha", float(emo_alpha))
-        self.user_config.set("audio_format", audio_format)
-
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            voice_label = self._safe_voice_label(celeb_name or "indextts")
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._index_tts_subtitle(
-                    translation_file,
-                    voice_label,
-                    celeb_audio,
-                    celeb_transcript,
-                    emo_audio_prompt,
-                    effective_emo_enabled,
-                    emo_alpha,
-                    audio_format,
-                    progress=synth_progress,
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._index_tts_text(
-                    translation_text,
-                    voice_label,
-                    celeb_audio,
-                    celeb_transcript,
-                    emo_audio_prompt,
-                    effective_emo_enabled,
-                    emo_alpha,
-                    audio_format,
-                    progress=synth_progress,
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, mixed_audio_file, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-
-    def gradio_voxcpm_dubbing(
-        self,
-        translation_text,
-        celeb_name,
-        celeb_audio,
-        celeb_transcript,
-        mode,
-        voice_description,
-        cfg_value,
-        inference_timesteps,
-        normalize_text,
-        denoise_reference,
-        audio_format: str,
-    ):
-        logger.info("[gradio_gulliver.py] gradio_voxcpm_dubbing - mode=%s voice=%s", mode, celeb_name)
-
-        if len(translation_text) < 1:
-            logger.warning("[gradio_gulliver.py] gradio_voxcpm_dubbing - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        self.user_config.set("voxcpm_mode", mode)
-        self.user_config.set("voxcpm_cfg_value", float(cfg_value))
-        self.user_config.set("voxcpm_inference_timesteps", int(inference_timesteps))
-        self.user_config.set("voxcpm_normalize_text", bool(normalize_text))
-        self.user_config.set("voxcpm_denoise_reference", bool(denoise_reference))
-        self.user_config.set("audio_format", audio_format)
-
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            voice_label = self._safe_voice_label(celeb_name or "voxcpm")
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._voxcpm_tts_subtitle(
-                    translation_file,
-                    voice_label,
-                    celeb_audio,
-                    celeb_transcript,
-                    mode,
-                    voice_description,
-                    cfg_value,
-                    inference_timesteps,
-                    normalize_text,
-                    denoise_reference,
-                    audio_format,
-                    progress=synth_progress,
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._voxcpm_tts_text(
-                    translation_text,
-                    voice_label,
-                    celeb_audio,
-                    celeb_transcript,
-                    mode,
-                    voice_description,
-                    cfg_value,
-                    inference_timesteps,
-                    normalize_text,
-                    denoise_reference,
-                    audio_format,
-                    progress=synth_progress,
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, mixed_audio_file, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-
-    def gradio_dots_dubbing(
-        self,
-        translation_text,
-        celeb_name,
-        celeb_audio,
-        celeb_transcript,
-        model_choice,
-        language_tag,
-        num_steps,
-        guidance_scale,
-        seed,
-        normalize_text,
-        audio_format: str,
-    ):
-        logger.info("[gradio_gulliver.py] gradio_dots_dubbing - model=%s voice=%s", model_choice, celeb_name)
-
-        if len(translation_text) < 1:
-            logger.warning("[gradio_gulliver.py] gradio_dots_dubbing - no actions")
-            yield None, None, self.fm.get_all_files(), self._progress_hidden()
-            return
-
-        self.user_config.set("dots_model", model_choice)
-        self.user_config.set("dots_language", language_tag)
-        self.user_config.set("dots_num_steps", int(num_steps))
-        self.user_config.set("dots_guidance_scale", float(guidance_scale))
-        self.user_config.set("dots_seed", int(seed))
-        self.user_config.set("dots_normalize_text", bool(normalize_text))
-        self.user_config.set("audio_format", audio_format)
-
-        def worker(progress):
-            progress.set(0.05, "Preparing dubbing...")
-            translation_file = None
-            if len(translation_text) > 0 and self._is_subtitle_format(translation_text):
-                subs = pysubs2.SSAFile.from_string(translation_text)
-                translation_file = os.path.join(path_translate_folder(), path_new_filename(f".{subs.format}"))
-                subs.save(translation_file)
-
-            voice_label = self._safe_voice_label(celeb_name)
-            synth_progress = progress.child(0.1, 0.75, "Generating speech...")
-            if translation_file:
-                aidub_video_file, mixed_audio_file = self._dots_tts_subtitle(
-                    translation_file, voice_label, celeb_audio, celeb_transcript, model_choice, language_tag,
-                    num_steps, guidance_scale, seed, normalize_text, audio_format, progress=synth_progress
-                )
-            else:
-                aidub_video_file, mixed_audio_file = self._dots_tts_text(
-                    translation_text, voice_label, celeb_audio, celeb_transcript, model_choice, language_tag,
-                    num_steps, guidance_scale, seed, normalize_text, audio_format, progress=synth_progress
-                )
-
-            progress.set(0.82, "Mixing audio...")
-            progress.set(0.92, "Refreshing output video...")
-            output_video_path = (aidub_video_file, translation_file) if aidub_video_file and translation_file else aidub_video_file
-            progress.set(1.0, "Speech synthesis complete")
-            return output_video_path, mixed_audio_file, self.fm.get_all_files()
-
-        yield from self._run_with_output_progress(worker, output_count=3, start_desc="Preparing dubbing...")
-
-    def _dots_tts_text(
-        self,
-        text: str,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        model_choice,
-        language_tag,
-        num_steps,
-        guidance_scale,
-        seed,
-        normalize_text,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.dots_tts.text_to_voice(
-                text,
-                aidub_audio_file,
-                prompt_audio,
-                prompt_text,
-                model_choice,
-                language_tag,
-                num_steps,
-                guidance_scale,
-                seed,
-                normalize_text,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _dots_tts_text - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
-
-    def _voxcpm_tts_text(
-        self,
-        text: str,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        mode,
-        voice_description,
-        cfg_value,
-        inference_timesteps,
-        normalize_text,
-        denoise_reference,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.voxcpm_tts.text_to_voice(
-                text,
-                aidub_audio_file,
-                mode,
-                prompt_audio,
-                prompt_text,
-                voice_description,
-                cfg_value,
-                inference_timesteps,
-                normalize_text,
-                denoise_reference,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _voxcpm_tts_text - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
-
-    def _voxcpm_tts_subtitle(
-        self,
-        subtitle_file,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        mode,
-        voice_description,
-        cfg_value,
-        inference_timesteps,
-        normalize_text,
-        denoise_reference,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.voxcpm_tts.srt_to_voice(
-                subtitle_file,
-                aidub_audio_file,
-                mode,
-                prompt_audio,
-                prompt_text,
-                voice_description,
-                cfg_value,
-                inference_timesteps,
-                normalize_text,
-                denoise_reference,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _voxcpm_tts_subtitle - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
-
-    def _dots_tts_subtitle(
-        self,
-        subtitle_file,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        model_choice,
-        language_tag,
-        num_steps,
-        guidance_scale,
-        seed,
-        normalize_text,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.dots_tts.srt_to_voice(
-                subtitle_file,
-                aidub_audio_file,
-                prompt_audio,
-                prompt_text,
-                model_choice,
-                language_tag,
-                num_steps,
-                guidance_scale,
-                seed,
-                normalize_text,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _dots_tts_subtitle - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
-
-    def _index_tts_text(
-        self,
-        text: str,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        emo_audio_prompt,
-        enable_emo_audio,
-        emo_alpha,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.index_tts.text_to_voice(
-                text,
-                aidub_audio_file,
-                prompt_audio,
-                prompt_text,
-                emo_audio_prompt,
-                enable_emo_audio,
-                emo_alpha,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _index_tts_text - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
-
-    def _index_tts_subtitle(
-        self,
-        subtitle_file,
-        voice_label: str,
-        prompt_audio,
-        prompt_text,
-        emo_audio_prompt,
-        enable_emo_audio,
-        emo_alpha,
-        audio_format: str,
-        progress=None,
-    ):
-        try:
-            source_audio_file = self.fm.get_split("Source.audio")
-            aidub_audio_file = path_add_postfix(source_audio_file, f"_{voice_label}")
-            self.index_tts.srt_to_voice(
-                subtitle_file,
-                aidub_audio_file,
-                prompt_audio,
-                prompt_text,
-                emo_audio_prompt,
-                enable_emo_audio,
-                emo_alpha,
-                audio_format,
-                progress=progress,
-            )
-
-            mixed_audio_file = path_add_postfix(source_audio_file, f"_mixed_{voice_label}")
-            denoise_inst_path, _ = self._denoise(source_audio_file, 1)
-            ffmpeg_mix_audio(aidub_audio_file, denoise_inst_path, mixed_audio_file, 0, 0, audio_format)
-            self.fm.set_dubbing(f"{voice_label}.audio", aidub_audio_file)
-
-            if self.has_video:
-                source_video_file = self.fm.get_split("Source.video")
-                aidub_video_file = path_add_postfix(source_video_file, f"_{voice_label}")
-                ffmpeg_replace_audio(source_video_file, mixed_audio_file, aidub_video_file)
-                self.fm.set_dubbing(f"{voice_label}.video", aidub_video_file)
-                return aidub_video_file, mixed_audio_file
-            return None, mixed_audio_file
-        except Exception as e:
-            logger.error(f"[gradio_gulliver.py] _index_tts_subtitle - Error : {e}")
-            gr.Warning(f"{e}")
-            return None, None
+            with open(filepath, "r", encoding="utf-8") as file:
+                return file.read()
+        except UnicodeDecodeError:
+            return "Error: The file is not a valid text file or uses an unsupported encoding."
+        except IOError:
+            return "Error: Unable to read the file."

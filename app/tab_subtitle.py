@@ -32,7 +32,7 @@ def subtitle_tab(user_config: UserConfig):
                 with gr.Group():
                     url_text = gr.Textbox(label=i18n("YouTube URL"), placeholder="https://youtu.be/abcdefgh...")
                     youtube_quality_radio = gr.Radio(label=i18n("YouTube Video Quality"), choices=["low", "good", "best"], value=user_config.get("video_quality", "good"))
-                audio_format_radio = gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("audio_format", "flac"))
+                audio_format_radio = gr.Radio(label=i18n("Audio Format"), choices=["wav", "mp3"], value=user_config.get("upload_audio_format", "wav"))
             
             with gr.Row():
                 clear_button = gr.ClearButton(value=i18n("Clear"))
@@ -58,13 +58,9 @@ def subtitle_tab(user_config: UserConfig):
         with gr.Column(scale=3): 
             with gr.Group():
                 gr.HTML(f'<center><h4>{i18n("Whisper subtitles")}</h4></center>')
-                asr_engine = user_config.get("asr_engine", 'faster-whisper')
-                asr_engine_radio = gr.Radio(label=i18n("Whisper Engine"), choices=asr.get_asr_engines(), value=asr_engine)
-                
-                whisper_model_name = user_config.get(f"{asr_engine.replace('-', '_')}_model", 'large')                
+                whisper_model_name = user_config.get("whisper_timestamped_model", "large-v3-turbo")
                 whisper_model_dropdown = gr.Dropdown(label=i18n("Whisper Model"), choices=asr.get_whisper_models(), value=whisper_model_name, info=i18n(""))
                 whisper_language_dropdown = gr.Dropdown(label=i18n("Media Language"), choices=asr.get_whisper_languages(), value=user_config.get("whisper_language", 'english'), info=i18n(""))
-                compute_type_dropdown = gr.Dropdown(label=i18n("Compute Type"), choices=asr.get_whisper_compute_types(), value=user_config.get("whisper_compute_type", 'default'), info=i18n("Only for faster-whisper"))
                 highlight_checkbox = gr.Checkbox(label=i18n("Highlight Words"), value=user_config.get("whisper_highlight_words", False))
                 denoise_level = gr.Slider(minimum=0, maximum=2, step=1, value=user_config.get("denoise_level", 0), label=i18n("Denoise Level"))
             with gr.Row():    
@@ -79,13 +75,8 @@ def subtitle_tab(user_config: UserConfig):
     workspace_button.click(asr.open_workspace_folder)
     temp_button.click(asr.open_temp_folder)
     
-    
-    asr_engine_radio.change(asr.update_whisper_models,
-                        inputs=[asr_engine_radio],
-                        outputs=[whisper_model_dropdown])
-    
     whisper_default_button.click(asr.gradio_whisper_default,
-                    outputs=[whisper_model_dropdown, whisper_language_dropdown, compute_type_dropdown, highlight_checkbox, denoise_level])           
+                    outputs=[whisper_model_dropdown, whisper_language_dropdown, highlight_checkbox, denoise_level])
     whisper_button.click(asr.transcribe, 
-                        inputs=[asr_engine_radio, whisper_model_dropdown, whisper_language_dropdown, compute_type_dropdown, highlight_checkbox, denoise_level], 
+                        inputs=[whisper_model_dropdown, whisper_language_dropdown, highlight_checkbox, denoise_level], 
                         outputs=[input_video, source_srt, subtitle_files])              

@@ -55,7 +55,7 @@ class GradioIndexTTS:
             effective_emo_enabled = self.tts.normalize_emotion_inputs(enable_emo_audio, emo_audio_prompt)
             self.user_config.set("index_tts_enable_emo_audio", effective_emo_enabled)
             self.user_config.set("index_tts_emo_alpha", float(emo_alpha))
-            self.user_config.set("audio_format", audio_format)
+            self.user_config.set("tts_audio_format", audio_format)
 
             dubbing_file = os.path.join(path_dubbing_folder(), path_new_filename(f".{audio_format}"))
             self.tts.infer_single(

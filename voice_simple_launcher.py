@@ -123,9 +123,7 @@ def main() -> None:
     AbusHuggingFace.initialize(app_name="voice")
     AbusHuggingFace.hf_download_models(file_type="demucs", level=0)
     _ensure_demucs_yaml_configs()
-    AbusHuggingFace.hf_download_models(file_type="edge-tts", level=0)
-    AbusHuggingFace.hf_download_models(file_type="kokoro", level=0)
-    AbusHuggingFace.hf_download_models(file_type="cosyvoice", level=0)
+    AbusHuggingFace.hf_download_models(file_type="reference", level=0)
 
     path_workspace_folder()
     path_gradio_folder()

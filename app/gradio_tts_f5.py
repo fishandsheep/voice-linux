@@ -53,6 +53,7 @@ class GradioF5TTS:
         logger.debug(f"[gradio_tts_f5.py] gradio_tts_dubbing_single - input_text: {input_text}")                  
         
         try:
+            self.user_config.set("tts_audio_format", audio_format)
             dubbing_file = os.path.join(path_dubbing_folder(), path_new_filename(f".{audio_format}"))
             self.tts.infer_single(input_text.strip(), dubbing_file, celeb_audio, celeb_transcript, model_choice, speed_factor, audio_format)
             return dubbing_file, dubbing_file
@@ -105,4 +106,3 @@ class GradioF5TTS:
         
   
         
-

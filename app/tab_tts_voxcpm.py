@@ -10,6 +10,7 @@ import gradio as gr
 
 from app.gradio_tts_voxcpm import *
 from app.gradio_voice_celeb import *
+from app.tts_help import render_helped_control
 from src.config import UserConfig
 from src.i18n.i18n import I18nAuto
 
@@ -54,13 +55,41 @@ def tts_voxcpm_tab(user_config: UserConfig):
         with gr.Column(scale=4):
             with gr.Group():
                 gr.HTML(f"<center><h4>VoxCPM</h4></center>")
-                mode_choice = gr.Dropdown(choices=tts.gradio_modes(), label="Mode", value=user_config.get("voxcpm_mode", "Voice Clone"))
-                voice_description = gr.Textbox(label="Voice Description", interactive=True, max_lines=6, lines=4, placeholder=i18n("Optional"))
-                cfg_value = gr.Slider(0.5, 4.0, value=user_config.get("voxcpm_cfg_value", 2.0), step=0.1, label="CFG Value", info="0.5 ~ 4.0")
-                inference_timesteps = gr.Slider(4, 20, value=user_config.get("voxcpm_inference_timesteps", 10), step=1, label="Inference Steps", info="4 ~ 20")
-                normalize_text = gr.Checkbox(label="Normalize Text", value=user_config.get("voxcpm_normalize_text", False))
-                denoise_reference = gr.Checkbox(label="Denoise Reference", value=user_config.get("voxcpm_denoise_reference", False))
-                audio_format_radio = gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("audio_format", "mp3"))
+                mode_choice = render_helped_control(
+                    "voxcpm",
+                    "Mode",
+                    lambda: gr.Dropdown(choices=tts.gradio_modes(), label="Mode", value=user_config.get("voxcpm_mode", "Voice Clone")),
+                )
+                voice_description = render_helped_control(
+                    "voxcpm",
+                    "Voice Description",
+                    lambda: gr.Textbox(label="Voice Description", interactive=True, max_lines=6, lines=4, placeholder=i18n("Optional")),
+                )
+                cfg_value = render_helped_control(
+                    "voxcpm",
+                    "CFG Value",
+                    lambda: gr.Slider(0.5, 4.0, value=user_config.get("voxcpm_cfg_value", 2.0), step=0.1, label="CFG Value", info="0.5 ~ 4.0"),
+                )
+                inference_timesteps = render_helped_control(
+                    "voxcpm",
+                    "Inference Steps",
+                    lambda: gr.Slider(4, 20, value=user_config.get("voxcpm_inference_timesteps", 10), step=1, label="Inference Steps", info="4 ~ 20"),
+                )
+                normalize_text = render_helped_control(
+                    "voxcpm",
+                    "Normalize Text",
+                    lambda: gr.Checkbox(label="Normalize Text", value=user_config.get("voxcpm_normalize_text", False)),
+                )
+                denoise_reference = render_helped_control(
+                    "voxcpm",
+                    "Denoise Reference",
+                    lambda: gr.Checkbox(label="Denoise Reference", value=user_config.get("voxcpm_denoise_reference", False)),
+                )
+                audio_format_radio = render_helped_control(
+                    "voxcpm",
+                    "Audio Format",
+                    lambda: gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("tts_audio_format", "mp3")),
+                )
             with gr.Row():
                 voxcpm_default_button = gr.ClearButton(value=i18n("Load Defaults"))
                 dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")

@@ -16,6 +16,7 @@ i18n = I18nAuto()
 
 from app.gradio_tts_f5 import *
 from app.gradio_voice_celeb import *
+from app.tts_help import render_helped_control
 
 
 
@@ -51,9 +52,21 @@ def tts_f5_single_tab(user_config: UserConfig):
         with gr.Column(scale=4):                     
             with gr.Group():                            
                 gr.HTML(f'<center><h4>{i18n("Speech Generation")}</h4></center>')
-                model_choice = gr.Dropdown(choices=tts.gradio_available_models(), label="Choose Model", value="SWivid/F5-TTS_v1")
-                f5_tts_speed = gr.Slider(0.3, 2.0, value=1.0, step = 0.1, label=i18n("Speech rate"), info="0.3 ~ 2.0")
-                audio_format_radio = gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("audio_format", "mp3"))                   
+                model_choice = render_helped_control(
+                    "f5",
+                    "Choose Model",
+                    lambda: gr.Dropdown(choices=tts.gradio_available_models(), label="Choose Model", value="SWivid/F5-TTS_v1"),
+                )
+                f5_tts_speed = render_helped_control(
+                    "f5",
+                    "Speech rate",
+                    lambda: gr.Slider(0.3, 2.0, value=1.0, step = 0.1, label=i18n("Speech rate"), info="0.3 ~ 2.0"),
+                )
+                audio_format_radio = render_helped_control(
+                    "f5",
+                    "Audio Format",
+                    lambda: gr.Radio(label=i18n("Audio Format"), choices=["wav", "flac", "mp3"], value=user_config.get("tts_audio_format", "mp3")),
+                )
             with gr.Row():
                 f5_default_button = gr.ClearButton(value=i18n("Load Defaults")) 
                 dubbing_button = gr.Button(value=i18n("Synthesis"), variant="primary")  
